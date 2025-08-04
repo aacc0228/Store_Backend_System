@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>管理員後台</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', 'Microsoft JhengHei', Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+        }
+        .header h1 { margin: 0; font-size: 1.8rem; }
+        .logout-button {
+            padding: 0.6rem 1.2rem; background-color: #dc3545; color: white;
+            text-decoration: none; border-radius: 5px; font-size: 0.9rem;
+            border: none; cursor: pointer; transition: background-color 0.2s;
+        }
+        .logout-button:hover { background-color: #c82333; }
+        .tab-nav { display: flex; border-bottom: 2px solid #ddd; margin-bottom: 2rem; }
+        .tab-button {
+            padding: 1rem 1.5rem; cursor: pointer; border: none;
+            background-color: transparent; font-size: 1rem; color: #555;
+            position: relative; top: 2px;
+        }
+        .tab-button.active {
+            font-weight: bold; color: #007bff; border-bottom: 2px solid #007bff;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.5s; }
+        h2 { color: #333; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; margin-top: 0; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .actions-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .search-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .search-controls input, .search-controls select {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        .search-controls button {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .search-controls button:hover { background-color: #0056b3; }
+        .btn-add, .btn-edit {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.85rem;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-add { background-color: #28a745; }
+        .btn-add:hover { background-color: #218838; }
+        .btn-edit { background-color: #ffc107; color: #212529; }
+        .btn-edit:hover { background-color: #e0a800; }
+        .table-container { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 12px 15px; border: 1px solid #ddd; text-align: left; font-size: 0.9rem; }
+        td { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        td.translations { white-space: normal; }
+        th { background-color: #f8f9fa; font-weight: bold; color: #333; white-space: nowrap; }
+        tbody tr:nth-child(even) { background-color: #f2f2f2; }
+        tbody tr:hover { background-color: #e9ecef; }
+        .pagination-controls { display: flex; justify-content: center; align-items: center; margin-top: 2rem; }
+        .pagination-button {
+            padding: 8px 16px; margin: 0 4px; border: 1px solid #ddd; background-color: white;
+            color: #007bff; cursor: pointer; border-radius: 4px;
+        }
+        .pagination-button:hover:not(:disabled) { background-color: #e9ecef; }
+        .pagination-button:disabled { color: #aaa; cursor: not-allowed; }
+        .pagination-info { margin: 0 16px; font-size: 0.9rem; color: #555; }
+        .flash-message-success {
+            padding: 1rem; background-color: #d4edda; color: #155724;
+            border: 1px solid #c3e6cb; border-radius: 4px;
+            margin-bottom: 1.5rem; text-align: center;
+        }
+        .menu-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        .menu-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .menu-selector label { font-weight: bold; }
+        .menu-selector select {
+            min-width: 250px;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>歡迎，{{ username }}！</h1>
+            <form action="{{ url_for('logout') }}" method="get">
+                <button type="submit" class="logout-button">登出</button>
+            </form>
+        </div>
+
+        <div class="tab-nav">
+            <button class="tab-button active" onclick="openTab(event, 'store-info')">店家資訊</button>
+            <button class="tab-button" onclick="openTab(event, 'menu-content')">菜單內容</button>
+            <button class="tab-button" onclick="openTab(event, 'languages-maintenance')">語系維護</button>
+        </div>
+
+        <div id="store-info" class="tab-content active">
+            <h2>店家列表</h2>
+            {% with messages = get_flashed_messages() %}
+              {% if messages %}
+                <div class="flash-message-success">{{ messages[0] }}</div>
+              {% endif %}
+            {% endwith %}
+            <div class="actions-bar">
+                <div class="search-controls">
+                    <input type="text" id="search-name" placeholder="輸入店家名稱...">
+                    <select id="search-level">
+                        <option value="">全部等級</option>
+                        <option value="2">VIP</option>
+                        <option value="1">合作</option>
+                        <option value="0">非合作</option>
+                    </select>
+                    <button id="search-button">搜尋</button>
+                </div>
+                <a href="{{ url_for('add_store') }}" class="btn-add">新增店家</a>
+            </div>
+            <div class="table-container">
+                <table id="stores-table">
+                    <thead>
+                        <tr>
+                            <th>操作</th><th>店家 ID</th><th>店家名稱</th><th>合作等級</th><th>建立時間</th>
+                            <th>評論摘要</th><th>人氣菜色 1</th><th>人氣菜色 2</th><th>人氣菜色 3</th>
+                            <th>人氣菜色 4</th><th>人氣菜色 5</th><th>照片 URL</th><th>緯度</th>
+                            <th>經度</th><th>Place ID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="15" style="text-align:center;">正在載入資料...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination-controls" id="pagination-controls"></div>
+        </div>
+
+        <div id="menu-content" class="tab-content">
+            <h2>菜單項目管理</h2>
+            <div class="menu-header">
+                <div class="menu-selector">
+                    <label for="store-select">選擇店家：</label>
+                    <select id="store-select">
+                        <option value="">-- 請選擇一家店 --</option>
+                    </select>
+                </div>
+                <!-- <a href="#" id="add-menu-item-btn" class="btn-add" style="display: none;">新增品項</a> -->
+            </div>
+            <div class="table-container" id="menu-items-container">
+                <table id="menu-items-table">
+                    <thead>
+                        <tr>
+                            <th>操作</th>
+                            <th>品項名稱</th>
+                            <th>大份價格</th>
+                            <th>小份價格</th>
+                            <th>多語言描述</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="5" style="text-align:center;">請先選擇一家店來查看菜單。</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="languages-maintenance" class="tab-content">
+            <h2>語系維護</h2>
+            <div class="actions-bar">
+                <div class="search-controls">
+                    <input type="text" id="lang-search-input" placeholder="搜尋代碼或名稱...">
+                </div>
+                <button class="btn-add" onclick="openLanguageModal()">新增語系</button>
+            </div>
+            <div class="table-container">
+                <table id="languages-table">
+                    <thead>
+                        <tr>
+                            <th>語言代碼</th>
+                            <th>語言名稱</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="3" style="text-align:center;">正在載入資料...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTab(event, tabName) {
+            let i, tabContents, tabButtons;
+            tabContents = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabContents.length; i++) { tabContents[i].classList.remove("active"); }
+            tabButtons = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tabButtons.length; i++) { tabButtons[i].classList.remove("active"); }
+            const activeTab = document.getElementById(tabName);
+            activeTab.classList.add("active");
+            event.currentTarget.classList.add("active");
+
+            if (tabName === 'languages-maintenance') {
+                fetchLanguages();
+            }
+        }
+
+        // --- 店家資訊 Tab 的邏輯 ---
+        const storesTableBody = document.querySelector("#stores-table tbody");
+        const paginationControls = document.getElementById("pagination-controls");
+        const searchNameInput = document.getElementById("search-name");
+        const searchLevelSelect = document.getElementById("search-level");
+        const searchButton = document.getElementById("search-button");
+
+        async function fetchStores(page = 1) {
+            const searchName = searchNameInput.value;
+            const searchLevel = searchLevelSelect.value;
+            storesTableBody.innerHTML = `<tr><td colspan="15" style="text-align:center;">正在載入資料...</td></tr>`;
+            const apiUrl = `/api/stores?page=${page}&name=${encodeURIComponent(searchName)}&level=${encodeURIComponent(searchLevel)}`;
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) { throw new Error(`HTTP 錯誤! 狀態: ${response.status}`); }
+                const data = await response.json();
+                renderTable(data.stores);
+                renderPagination(data.pagination);
+            } catch (error) {
+                console.error("無法取得店家資料:", error);
+                storesTableBody.innerHTML = `<tr><td colspan="15" style="text-align:center; color: red;">無法載入資料。</td></tr>`;
+            }
+        }
+
+        function renderTable(stores) {
+            storesTableBody.innerHTML = "";
+            if (!stores || stores.length === 0) {
+                storesTableBody.innerHTML = `<tr><td colspan="15" style="text-align:center;">找不到符合條件的店家資料。</td></tr>`;
+                return;
+            }
+            stores.forEach(store => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td><a href="/edit_store/${store.store_id}" class="btn-edit">修改</a></td>
+                    <td>${store.store_id}</td><td>${store.store_name || ''}</td>
+                    <td>${getPartnerLevelText(store.partner_level)}</td><td>${formatDate(store.created_at)}</td>
+                    <td title="${store.review_summary || ''}">${store.review_summary || ''}</td>
+                    <td>${store.top_dish_1 || ''}</td><td>${store.top_dish_2 || ''}</td>
+                    <td>${store.top_dish_3 || ''}</td><td>${store.top_dish_4 || ''}</td>
+                    <td>${store.top_dish_5 || ''}</td>
+                    <td>${store.main_photo_url ? `<a href="${store.main_photo_url}" target="_blank">連結</a>` : ''}</td>
+                    <td>${store.gps_lat || ''}</td><td>${store.gps_lng || ''}</td>
+                    <td>${store.place_id || ''}</td>
+                `;
+                storesTableBody.appendChild(row);
+            });
+        }
+
+        function renderPagination(pagination) {
+            paginationControls.innerHTML = "";
+            if (!pagination || pagination.total_pages <= 1) return;
+            const prevButton = document.createElement("button");
+            prevButton.innerText = "上一頁";
+            prevButton.className = "pagination-button";
+            prevButton.disabled = !pagination.has_prev;
+            prevButton.onclick = () => fetchStores(pagination.current_page - 1);
+            paginationControls.appendChild(prevButton);
+            const pageInfo = document.createElement("span");
+            pageInfo.className = "pagination-info";
+            pageInfo.innerText = `第 ${pagination.current_page} / ${pagination.total_pages} 頁`;
+            paginationControls.appendChild(pageInfo);
+            const nextButton = document.createElement("button");
+            nextButton.innerText = "下一頁";
+            nextButton.className = "pagination-button";
+            nextButton.disabled = !pagination.has_next;
+            nextButton.onclick = () => fetchStores(pagination.current_page + 1);
+            paginationControls.appendChild(nextButton);
+        }
+
+        // --- 菜單內容 Tab 的邏輯 ---
+        const storeSelect = document.getElementById('store-select');
+        const menuItemsTableBody = document.querySelector('#menu-items-table tbody');
+        // const addMenuItemBtn = document.getElementById('add-menu-item-btn');
+
+        async function populateStoreSelector() {
+            try {
+                const response = await fetch('/api/all_stores');
+                const stores = await response.json();
+                stores.forEach(store => {
+                    const option = document.createElement('option');
+                    option.value = store.store_id;
+                    option.textContent = `${store.store_id}: ${store.store_name}`;
+                    storeSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('無法載入店家列表:', error);
+            }
+        }
+
+        async function fetchMenuItems(storeId) {
+            if (!storeId) {
+                menuItemsTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">請先選擇一家店來查看菜單。</td></tr>';
+                // addMenuItemBtn.style.display = 'none';
+                return;
+            }
+            // addMenuItemBtn.href = `/add_menu_item/${storeId}`;
+            // addMenuItemBtn.style.display = 'inline-block';
+            menuItemsTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">正在載入菜單...</td></tr>';
+            try {
+                const response = await fetch(`/api/menu_items/${storeId}`);
+                const items = await response.json();
+                renderMenuTable(items);
+            } catch (error) {
+                console.error('無法載入菜單項目:', error);
+                menuItemsTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red;">無法載入菜單。</td></tr>';
+            }
+        }
+
+        function renderMenuTable(items) {
+            menuItemsTableBody.innerHTML = '';
+            if (!items || items.length === 0) {
+                menuItemsTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">這家店目前沒有菜單資料。</td></tr>';
+                return;
+            }
+            items.forEach(item => {
+                const row = document.createElement('tr');
+                let translationsHtml = '';
+                if (item.translations && item.translations.length > 0) {
+                    translationsHtml = item.translations
+                        .map(t => `<b>${t.lang_name}:</b> ${t.description}`)
+                        .join('<br>');
+                } else {
+                    translationsHtml = '-';
+                }
+
+                row.innerHTML = `
+                    <td><a href="/edit_menu_item/${item.menu_item_id}" class="btn-edit">修改</a></td>
+                    <td>${item.item_name}</td>
+                    <td>${item.price_big !== null ? item.price_big : '-'}</td>
+                    <td>${item.price_small}</td>
+                    <td class="translations">${translationsHtml}</td>
+                `;
+                menuItemsTableBody.appendChild(row);
+            });
+        }
+
+        // --- 語系維護 Tab 的邏輯 ---
+        const langSearchInput = document.getElementById('lang-search-input');
+        const languagesTableBody = document.querySelector('#languages-table tbody');
+
+        async function fetchLanguages() {
+            const searchTerm = langSearchInput.value;
+            languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">正在載入資料...</td></tr>`;
+            try {
+                const response = await fetch(`/api/languages?search=${encodeURIComponent(searchTerm)}`);
+                const languages = await response.json();
+                renderLanguagesTable(languages);
+            } catch (error) {
+                console.error('無法載入語系資料:', error);
+                languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: red;">無法載入語系資料。</td></tr>`;
+            }
+        }
+
+        function renderLanguagesTable(languages) {
+            languagesTableBody.innerHTML = '';
+            if (!languages || languages.length === 0) {
+                languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">找不到符合條件的語系資料。</td></tr>`;
+                return;
+            }
+            languages.forEach(lang => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${lang.lang_code}</td>
+                    <td>${lang.lang_name}</td>
+                    <td><button class="btn-edit" onclick="openLanguageModal('${lang.lang_code}', '${lang.lang_name}')">修改</button></td>
+                `;
+                languagesTableBody.appendChild(row);
+            });
+        }
+
+        function openLanguageModal(code = '', name = '') {
+            const originalCode = code;
+            const isEdit = !!code;
+            const title = isEdit ? '修改語系' : '新增語系';
+            const codeInput = isEdit ? `<input type="text" id="lang-code-modal" value="${code}" disabled>` : `<input type="text" id="lang-code-modal" required>`;
+            
+            const modalHtml = `
+                <div id="language-modal-backdrop" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center;">
+                    <div id="language-modal-content" style="background: white; padding: 2rem; border-radius: 8px; width: 400px;">
+                        <h3>${title}</h3>
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div><label>語言代碼</label>${codeInput}</div>
+                            <div><label>語言名稱</label><input type="text" id="lang-name-modal" value="${name}" required></div>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
+                            <button onclick="document.getElementById('language-modal-backdrop').remove()">取消</button>
+                            <button id="save-lang-btn">儲存</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            document.getElementById('save-lang-btn').onclick = async () => {
+                const newCode = document.getElementById('lang-code-modal').value;
+                const newName = document.getElementById('lang-name-modal').value;
+                const url = isEdit ? '/api/languages/edit' : '/api/languages/add';
+                const payload = isEdit ? { original_lang_code: originalCode, lang_name: newName } : { lang_code: newCode, lang_name: newName };
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    document.getElementById('language-modal-backdrop').remove();
+                    fetchLanguages();
+                } else {
+                    alert(`錯誤: ${result.error}`);
+                }
+            };
+        }
+
+        // --- 共用函式與事件監聽 ---
+        function getPartnerLevelText(level) {
+            switch (level) { case 0: return '非合作'; case 1: return '合作'; case 2: return 'VIP'; default: return '未知'; }
+        }
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return date.toLocaleString('sv-SE').slice(0, 16);
+        }
+
+        searchButton.addEventListener("click", () => fetchStores(1));
+        searchNameInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter") { event.preventDefault(); searchButton.click(); }
+        });
+        storeSelect.addEventListener('change', (event) => {
+            fetchMenuItems(event.target.value);
+        });
+        langSearchInput.addEventListener('keypress', (event) => {
+            if (event.key === "Enter") { event.preventDefault(); fetchLanguages(); }
+        });
+        langSearchInput.addEventListener('input', () => fetchLanguages());
+
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            fetchStores(1);
+            await populateStoreSelector();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const activeTab = urlParams.get('tab');
+            const storeId = urlParams.get('store_id');
+
+            if (activeTab === 'menu') {
+                document.querySelector('button[onclick*="menu-content"]').click();
+                if (storeId) {
+                    storeSelect.value = storeId;
+                    storeSelect.dispatchEvent(new Event('change'));
+                }
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+Flask
+pyodbc
+mysql-connector-python
+configparser
+gunicorn

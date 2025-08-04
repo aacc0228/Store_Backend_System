@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>新增店家 - 管理員後台</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', 'Microsoft JhengHei', Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background-color: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 1rem;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+        label {
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            color: #555;
+        }
+        label .required {
+            color: #dc3545;
+            margin-left: 4px;
+        }
+        input[type="text"],
+        input[type="number"],
+        input[type="url"],
+        select,
+        textarea {
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .form-actions {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #eee;
+        }
+        .btn {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+            text-decoration: none;
+            text-align: center;
+        }
+        .btn-primary {
+            background-color: #007bff;
+        }
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        .flash-message {
+            padding: 1rem;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>新增店家資訊</h1>
+
+        <!-- 用於顯示錯誤訊息 -->
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-message">
+              {{ messages[0] }}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('add_store') }}" method="post">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="store_name">店家名稱<span class="required">*</span></label>
+                    <input type="text" id="store_name" name="store_name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="partner_level">合作等級<span class="required">*</span></label>
+                    <select id="partner_level" name="partner_level" required>
+                        <option value="0">非合作</option>
+                        <option value="1">合作</option>
+                        <option value="2">VIP</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="gps_lat">店家 GPS 緯度</label>
+                    <input type="number" step="any" id="gps_lat" name="gps_lat">
+                </div>
+
+                <div class="form-group">
+                    <label for="gps_lng">店家 GPS 經度</label>
+                    <input type="number" step="any" id="gps_lng" name="gps_lng">
+                </div>
+                
+                <div class="form-group full-width">
+                    <label for="main_photo_url">店家招牌照片 URL</label>
+                    <input type="url" id="main_photo_url" name="main_photo_url" placeholder="https://example.com/photo.jpg">
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="place_id">Google Map Place ID</label>
+                    <input type="text" id="place_id" name="place_id">
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="review_summary">店家評論摘要</label>
+                    <textarea id="review_summary" name="review_summary"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="top_dish_1">人氣菜色 1</label>
+                    <input type="text" id="top_dish_1" name="top_dish_1">
+                </div>
+                <div class="form-group">
+                    <label for="top_dish_2">人氣菜色 2</label>
+                    <input type="text" id="top_dish_2" name="top_dish_2">
+                </div>
+                <div class="form-group">
+                    <label for="top_dish_3">人氣菜色 3</label>
+                    <input type="text" id="top_dish_3" name="top_dish_3">
+                </div>
+                <div class="form-group">
+                    <label for="top_dish_4">人氣菜色 4</label>
+                    <input type="text" id="top_dish_4" name="top_dish_4">
+                </div>
+                <div class="form-group">
+                    <label for="top_dish_5">人氣菜色 5</label>
+                    <input type="text" id="top_dish_5" name="top_dish_5">
+                </div>
+                
+                <div class="form-actions">
+                    <a href="{{ url_for('admin') }}" class="btn btn-secondary">取消</a>
+                    <button type="submit" class="btn btn-primary">送出</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
