@@ -1,6 +1,4 @@
-# .github/workflows/deploy-vm.yml
-
-name: Deploy to GCP VM
+name: Deploy to Google Cloud Run
 
 on:
   push:
@@ -9,9 +7,9 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  VM_ZONE: ${{ secrets.VM_ZONE }}
-  VM_NAME: ${{ secrets.VM_NAME }}
-  # 將資料庫設定也定義為環境變數，方便在腳本中使用
+  SERVICE_NAME: my-menu-service
+  REGION: asia-east1
+  # --- 資料庫環境變數 ---
   DB_TYPE: 'MYSQL'
   DB_HOST: ${{ secrets.DB_HOST }}
   DB_USER: ${{ secrets.DB_USER }}
@@ -20,49 +18,32 @@ env:
 
 jobs:
   deploy:
-    name: Deploy to VM
+    name: Build and Deploy to Cloud Run
     runs-on: ubuntu-latest
 
     steps:
-      # 步驟 1: 登入 Google Cloud (為了取得 VM 的 IP 位址)
+      # 步驟 1: 從倉庫中拉取最新的程式碼
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 步驟 2: 使用我們設定的 Secret 登入 Google Cloud
       - name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-      - name: Set up Cloud SDK
-        uses: 'google-github-actions/setup-gcloud@v2'
-
-      # 步驟 2: 取得 VM 的外部 IP 位址
-      - name: Get VM IP Address
-        id: get_ip
-        run: |
-          IP_ADDRESS=$(gcloud compute instances describe ${{ env.VM_NAME }} --zone=${{ env.VM_ZONE }} --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
-          echo "VM_IP=${IP_ADDRESS}" >> $GITHUB_OUTPUT
-
-      # 步驟 3: 使用 SSH 遠端執行部署指令
-      - name: SSH and Deploy
-        uses: appleboy/ssh-action@master
+      # 步驟 3: 建置並部署到 Cloud Run
+      - name: Deploy to Cloud Run
+        uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          host: ${{ steps.get_ip.outputs.VM_IP }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            # 進入專案目錄，如果不存在就從 GitHub clone
-            if [ ! -d "store_backend_system" ]; then
-              git clone https://github.com/aacc0228/store_backend_system.git
-            fi
-            cd store_backend_system
-            
-            # 拉取最新的程式碼
-            git pull
-            
-            # 將 GitHub Secrets 的內容逐行寫入 .env 檔案
-            echo "DB_TYPE=${{ env.DB_TYPE }}" > .env
-            echo "DB_HOST=${{ env.DB_HOST }}" >> .env
-            echo "DB_USER=${{ env.DB_USER }}" >> .env
-            echo "DB_PASSWORD=${{ env.DB_PASSWORD }}" >> .env
-            echo "DB_DATABASE=${{ env.DB_DATABASE }}" >> .env
-            
-            # 使用 Docker Compose 重新建置並啟動
-            sudo docker-compose up -d --build
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          # 告訴 Cloud Run 從當前目錄的 Dockerfile 建置
+          source: '.'
+          # 將環境變數傳遞給 Cloud Run 服務
+          env_vars: |
+            DB_TYPE=${{ env.DB_TYPE }}
+            DB_HOST=${{ env.DB_HOST }}
+            DB_USER=${{ env.DB_USER }}
+            DB_PASSWORD=${{ env.DB_PASSWORD }}
+            DB_DATABASE=${{ env.DB_DATABASE }}
