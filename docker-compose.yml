@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  web:
+    # build: . 表示使用當前目錄下的 Dockerfile 來建置映像檔
+    build: .
+    # 將容器的 8080 連接埠，映射到 VM 的 80 連接埠
+    # 這樣使用者就可以直接透過 VM 的 IP 位址訪問網站
+    ports:
+      - "80:8080"
+    # restart: always 確保如果容器意外關閉，Docker 會自動將它重啟
+    restart: always
+    # env_file: .env 告訴 Docker 從一個名為 .env 的檔案中讀取環境變數
+    env_file:
+      - .env
