@@ -1,0 +1,57 @@
+# .github/workflows/deploy.yml
+
+name: Deploy to Google Cloud Run
+
+# 當有程式碼推送到 main 分支時，觸發此流程
+on:
+  push:
+    branches:
+      - main
+
+# 環境變數設定，請根據您的需求修改
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: my-menu-service
+  REGION: asia-east1
+  # --- 資料庫環境變數 ---
+  # 建議將這些也設定為 GitHub Secrets
+  DB_TYPE: 'SQL_SERVER'
+  DB_SERVER: 'your_db_server_ip'
+  DB_DATABASE: 'Menu'
+  DB_UID: 'your_db_user'
+  DB_PWD: ${{ secrets.DB_PASSWORD }} # 將密碼設為 Secret
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+
+    # 授予權限給 GitHub Actions，以便它可以向 GCP 進行身份驗證
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      # 步驟 1: 從倉庫中拉取最新的程式碼
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 步驟 2: 使用我們設定的 Secret 登入 Google Cloud
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_GAE252_KEY }}'
+
+      # 步驟 3: 設定 gcloud CLI 環境
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      # 步驟 4: 使用 gcloud 指令建置並部署到 Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --source . \
+            --platform managed \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --set-env-vars="DB_TYPE=${{ env.DB_TYPE }},DB_SERVER=${{ env.DB_SERVER }},DB_DATABASE=${{ env.DB_DATABASE }},DB_UID=${{ env.DB_UID }},DB_PWD=${{ env.DB_PWD }}"
