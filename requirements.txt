@@ -4,3 +4,4 @@ mysql-connector-python
 configparser
 gunicorn
 requests
+dotenv
