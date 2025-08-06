@@ -172,6 +172,32 @@ def get_stores():
         logging.error(f"API Stores 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
+# --- 新增的 Health Check 路由 ---
+@app.route('/health')
+def health_check():
+    """提供一個簡單的健康檢查端點"""
+    db_status = "ok"
+    http_status = 200
+    try:
+        # 嘗試連接資料庫並執行一個簡單的查詢
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        logging.error(f"健康檢查失敗：資料庫連線錯誤: {e}")
+        db_status = "error"
+        http_status = 503  # Service Unavailable
+
+    return jsonify({
+        "status": "ok" if http_status == 200 else "error",
+        "services": {
+            "database": db_status
+        }
+    }), http_status
+
 @app.route('/api/all_stores')
 def get_all_stores():
     if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
