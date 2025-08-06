@@ -108,7 +108,7 @@ def get_db_connection():
 def check_credentials(username, password):
     password_hash = hashlib.md5(password.encode('utf-8')).hexdigest()
     param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
-    sql_query = f"SELECT password FROM Account WHERE username = {param_marker};"
+    sql_query = f"SELECT password FROM account WHERE username = {param_marker};"
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
