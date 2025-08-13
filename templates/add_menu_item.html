@@ -168,7 +168,6 @@
     </div>
 
     <script>
-        // 將 Flask 傳來的 languages 列表轉換為 JavaScript 可用的 JSON 物件
         const availableLanguages = {{ languages|tojson }};
 
         function addTranslationField() {
@@ -176,11 +175,11 @@
             const newField = document.createElement('div');
             newField.className = 'translation-group';
 
-            // 建立 <select> 元素
             let selectHtml = '<select name="lang_codes[]" required>';
             selectHtml += '<option value="">-- 選擇語言 --</option>';
             availableLanguages.forEach(lang => {
-                selectHtml += `<option value="${lang.lang_code}">${lang.lang_name} (${lang.lang_code})</option>`;
+                // 使用 translation_lang_code 作為 option 的 value
+                selectHtml += `<option value="${lang.translation_lang_code}">${lang.lang_name} (${lang.translation_lang_code})</option>`;
             });
             selectHtml += '</select>';
 

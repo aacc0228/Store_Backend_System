@@ -61,18 +61,8 @@ def translate_text_with_gemini(text, target_language_name):
         logging.error("Gemini API 金鑰未設定。")
         return None
 
-    prompt = f"""你是一個專業的多語言翻譯專家。請將以下內容翻譯為目標語言，保持語境和語調的準確性。
-
-## 翻譯要求：
-1. **保持語境**：確保翻譯後的內容符合目標語言的文化背景
-2. **專業術語**：使用正確的餐飲專業術語
-3. **語調一致**：保持原文的語調和風格
-4. **格式保持**：保持原有的格式和結構
-
-要翻譯的內容：'{text}'
-目標語言：{target_language_name}
-
-請只回傳翻譯後的文字，不要包含任何其他說明或標籤。"""
+    # 使用一個更簡潔、直接的 Prompt，以獲得更穩定的結果
+    prompt = f"請將這個菜單品項 '{text}' 翻譯成專業且道地的'{target_language_name}'。請只回傳翻譯後的文字，不要加上任何引號、標籤或說明。"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}]
@@ -84,8 +74,13 @@ def translate_text_with_gemini(text, target_language_name):
         response.raise_for_status()
         result = response.json()
         
+        # 增加詳細的日誌記錄，以便除錯
+        logging.info(f"Gemini API Raw Response: {json.dumps(result, ensure_ascii=False)}")
+        
         if result.get('candidates'):
-            return result['candidates'][0]['content']['parts'][0]['text'].strip()
+            translated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
+            logging.info(f"Translated '{text}' to '{target_language_name}': '{translated_text}'")
+            return translated_text
         else:
             logging.error(f"Gemini API 回應格式錯誤: {result}")
             return None
@@ -108,7 +103,8 @@ def get_db_connection():
 def check_credentials(username, password):
     password_hash = hashlib.md5(password.encode('utf-8')).hexdigest()
     param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
-    sql_query = f"SELECT password FROM account WHERE username = {param_marker};"
+    # 將 account 改為 Account 以增加相容性
+    sql_query = f"SELECT password FROM Account WHERE username = {param_marker};"
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -223,9 +219,9 @@ def get_menu_items(store_id):
         FROM menu_items mi 
         JOIN menus m ON mi.menu_id = m.menu_id 
         LEFT JOIN menu_translations mt ON mi.menu_item_id = mt.menu_item_id 
-        LEFT JOIN languages l ON mt.lang_code = l.lang_code 
+        LEFT JOIN languages l ON mt.lang_code = l.translation_lang_code
         WHERE m.store_id = {param_marker} 
-        ORDER BY mi.menu_item_id, l.lang_code;
+        ORDER BY mi.menu_item_id, l.line_lang_code;
     """
     try:
         conn = get_db_connection()
@@ -243,6 +239,29 @@ def get_menu_items(store_id):
         return jsonify(list(items_dict.values()))
     except Exception as ex:
         logging.error(f"API Menu Items 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
+
+@app.route('/api/languages', methods=['GET'])
+def get_languages():
+    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
+    search_term = request.args.get('search', '', type=str)
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        query = "SELECT line_lang_code, lang_name, translation_lang_code, tts_lang_code FROM languages"
+        params = []
+        if search_term:
+            query += f" WHERE line_lang_code LIKE {param_marker} OR lang_name LIKE {param_marker}"
+            params.extend([f"%{search_term}%", f"%{search_term}%"])
+        query += " ORDER BY line_lang_code;"
+        cursor.execute(query, params)
+        languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify(languages)
+    except Exception as ex:
+        logging.error(f"API Languages 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
 @app.route('/api/auto_translate', methods=['POST'])
@@ -263,7 +282,7 @@ def auto_translate():
         param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
         
         for lang_code in target_langs:
-            cursor.execute(f"SELECT lang_name FROM languages WHERE lang_code = {param_marker}", (lang_code,))
+            cursor.execute(f"SELECT lang_name FROM languages WHERE translation_lang_code = {param_marker}", (lang_code,))
             result = cursor.fetchone()
             if result:
                 lang_name = result[0]
@@ -278,30 +297,34 @@ def auto_translate():
         logging.error(f"自動翻譯 API 發生錯誤: {ex}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/api/languages', methods=['GET'])
-def get_languages():
-    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
-    search_term = request.args.get('search', '', type=str)
-    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        query = "SELECT lang_code, lang_name FROM languages"
-        params = []
-        if search_term:
-            query += f" WHERE lang_code LIKE {param_marker} OR lang_name LIKE {param_marker}"
-            params.extend([f"%{search_term}%", f"%{search_term}%"])
-        query += " ORDER BY lang_code;"
-        cursor.execute(query, params)
-        languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
-        cursor.close()
-        conn.close()
-        return jsonify(languages)
-    except Exception as ex:
-        logging.error(f"API Languages 資料庫錯誤: {ex}")
-        return jsonify({"error": "Database error"}), 500
-
 # --- 完整路由列表 ---
+@app.route('/')
+def home():
+    if 'username' in session: return redirect(url_for('admin'))
+    return render_template('login.html')
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    if check_credentials(username, password):
+        session['username'] = username
+        return redirect(url_for('admin'))
+    flash('帳號或密碼錯誤！')
+    return redirect(url_for('home'))
+
+@app.route('/admin')
+def admin():
+    if 'username' in session: return render_template(ADMIN_PAGE, username=session['username'])
+    flash('請先登入才能存取此頁面。')
+    return redirect(url_for('home'))
+
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    flash('您已成功登出。')
+    return redirect(url_for('home'))
+
 @app.route('/add_store', methods=['GET', 'POST'])
 def add_store():
     if 'username' not in session:
@@ -441,7 +464,7 @@ def edit_menu_item(item_id):
                 store_row = cursor.fetchone()
                 store_info = dict(zip([c[0] for c in cursor.description], store_row)) if store_row else {}
 
-                cursor.execute("SELECT lang_code, lang_name FROM languages ORDER BY lang_code;")
+                cursor.execute("SELECT line_lang_code, lang_name, translation_lang_code FROM languages ORDER BY line_lang_code;")
                 languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
 
                 item_from_form = {
@@ -516,7 +539,7 @@ def edit_menu_item(item_id):
         for row in cursor.fetchall():
             item['translations'][row[0]] = row[1]
 
-        cursor.execute("SELECT lang_code, lang_name FROM languages ORDER BY lang_code;")
+        cursor.execute("SELECT line_lang_code, lang_name, translation_lang_code FROM languages ORDER BY line_lang_code;")
         columns = [c[0] for c in cursor.description]
         languages = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
@@ -528,33 +551,6 @@ def edit_menu_item(item_id):
     finally:
         cursor.close()
         conn.close()
-
-@app.route('/')
-def home():
-    if 'username' in session: return redirect(url_for('admin'))
-    return render_template('login.html')
-
-@app.route('/login', methods=['POST'])
-def login():
-    username = request.form.get('username')
-    password = request.form.get('password')
-    if check_credentials(username, password):
-        session['username'] = username
-        return redirect(url_for('admin'))
-    flash('帳號或密碼錯誤！')
-    return redirect(url_for('home'))
-
-@app.route('/admin')
-def admin():
-    if 'username' in session: return render_template(ADMIN_PAGE, username=session['username'])
-    flash('請先登入才能存取此頁面。')
-    return redirect(url_for('home'))
-
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    flash('您已成功登出。')
-    return redirect(url_for('home'))
 
 if __name__ == '__main__':
     app.run(debug=True)

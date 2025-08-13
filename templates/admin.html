@@ -225,13 +225,15 @@
                 <table id="languages-table">
                     <thead>
                         <tr>
-                            <th>語言代碼</th>
+                            <th>Line 語言代碼</th>
                             <th>語言名稱</th>
+                            <th>翻譯語言代碼</th>
+                            <th>TTS 語言代碼</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr><td colspan="3" style="text-align:center;">正在載入資料...</td></tr>
+                        <tr><td colspan="5" style="text-align:center;">正在載入資料...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -396,49 +398,57 @@
 
         async function fetchLanguages() {
             const searchTerm = langSearchInput.value;
-            languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">正在載入資料...</td></tr>`;
+            languagesTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;">正在載入資料...</td></tr>`;
             try {
                 const response = await fetch(`/api/languages?search=${encodeURIComponent(searchTerm)}`);
                 const languages = await response.json();
                 renderLanguagesTable(languages);
             } catch (error) {
                 console.error('無法載入語系資料:', error);
-                languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center; color: red;">無法載入語系資料。</td></tr>`;
+                languagesTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: red;">無法載入語系資料。</td></tr>`;
             }
         }
 
         function renderLanguagesTable(languages) {
             languagesTableBody.innerHTML = '';
             if (!languages || languages.length === 0) {
-                languagesTableBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">找不到符合條件的語系資料。</td></tr>`;
+                languagesTableBody.innerHTML = `<tr><td colspan="5" style="text-align:center;">找不到符合條件的語系資料。</td></tr>`;
                 return;
             }
             languages.forEach(lang => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${lang.lang_code}</td>
+                    <td>${lang.line_lang_code}</td>
                     <td>${lang.lang_name}</td>
-                    <td><button class="btn-edit" onclick="openLanguageModal('${lang.lang_code}', '${lang.lang_name}')">修改</button></td>
+                    <td>${lang.translation_lang_code}</td>
+                    <td>${lang.tts_lang_code}</td>
+                    <td><button class="btn-edit" onclick="openLanguageModal(
+                        '${lang.line_lang_code}', 
+                        '${lang.lang_name}', 
+                        '${lang.translation_lang_code}', 
+                        '${lang.tts_lang_code}'
+                    )">修改</button></td>
                 `;
                 languagesTableBody.appendChild(row);
             });
         }
 
-        function openLanguageModal(code = '', name = '') {
-            const originalCode = code;
-            const isEdit = !!code;
+        function openLanguageModal(line_code = '', name = '', trans_code = '', tts_code = '') {
+            const isEdit = !!line_code;
             const title = isEdit ? '修改語系' : '新增語系';
-            const codeInput = isEdit ? `<input type="text" id="lang-code-modal" value="${code}" disabled>` : `<input type="text" id="lang-code-modal" required>`;
+            const codeInput = isEdit 
+                ? `<input type="text" id="line-code-modal" value="${line_code}" disabled>` 
+                : `<input type="text" id="line-code-modal" required>`;
             
             const modalHtml = `
                 <div id="language-modal-backdrop" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center;">
-                    <div id="language-modal-content" style="background: white; padding: 2rem; border-radius: 8px; width: 400px;">
+                    <div id="language-modal-content" style="background: white; padding: 2rem; border-radius: 8px; width: 400px; display: flex; flex-direction: column; gap: 1rem;">
                         <h3>${title}</h3>
-                        <div style="display: flex; flex-direction: column; gap: 1rem;">
-                            <div><label>語言代碼</label>${codeInput}</div>
-                            <div><label>語言名稱</label><input type="text" id="lang-name-modal" value="${name}" required></div>
-                        </div>
-                        <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
+                        <div><label>Line 語言代碼</label>${codeInput}</div>
+                        <div><label>語言名稱</label><input type="text" id="lang-name-modal" value="${name}" required></div>
+                        <div><label>翻譯語言代碼</label><input type="text" id="trans-code-modal" value="${trans_code}" required></div>
+                        <div><label>TTS 語言代碼</label><input type="text" id="tts-code-modal" value="${tts_code}" required></div>
+                        <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem;">
                             <button onclick="document.getElementById('language-modal-backdrop').remove()">取消</button>
                             <button id="save-lang-btn">儲存</button>
                         </div>
@@ -448,10 +458,13 @@
             document.body.insertAdjacentHTML('beforeend', modalHtml);
 
             document.getElementById('save-lang-btn').onclick = async () => {
-                const newCode = document.getElementById('lang-code-modal').value;
-                const newName = document.getElementById('lang-name-modal').value;
+                const payload = {
+                    line_lang_code: document.getElementById('line-code-modal').value,
+                    lang_name: document.getElementById('lang-name-modal').value,
+                    translation_lang_code: document.getElementById('trans-code-modal').value,
+                    tts_lang_code: document.getElementById('tts-code-modal').value
+                };
                 const url = isEdit ? '/api/languages/edit' : '/api/languages/add';
-                const payload = isEdit ? { original_lang_code: originalCode, lang_name: newName } : { lang_code: newCode, lang_name: newName };
 
                 const response = await fetch(url, {
                     method: 'POST',
