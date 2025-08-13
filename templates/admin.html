@@ -228,7 +228,7 @@
                             <th>Line 語言代碼</th>
                             <th>語言名稱</th>
                             <th>翻譯語言代碼</th>
-                            <th>TTS 語言代碼</th>
+                            <th>STT 語言代碼</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -418,22 +418,22 @@
             languages.forEach(lang => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${lang.line_lang_code}</td>
-                    <td>${lang.lang_name}</td>
-                    <td>${lang.translation_lang_code}</td>
-                    <td>${lang.tts_lang_code}</td>
+                    <td>${lang.line_lang_code || ''}</td>
+                    <td>${lang.lang_name || ''}</td>
+                    <td>${lang.translation_lang_code || ''}</td>
+                    <td>${lang.stt_lang_code || ''}</td>
                     <td><button class="btn-edit" onclick="openLanguageModal(
-                        '${lang.line_lang_code}', 
-                        '${lang.lang_name}', 
-                        '${lang.translation_lang_code}', 
-                        '${lang.tts_lang_code}'
+                        '${lang.line_lang_code || ''}', 
+                        '${lang.lang_name || ''}', 
+                        '${lang.translation_lang_code || ''}', 
+                        '${lang.stt_lang_code || ''}'
                     )">修改</button></td>
                 `;
                 languagesTableBody.appendChild(row);
             });
         }
 
-        function openLanguageModal(line_code = '', name = '', trans_code = '', tts_code = '') {
+        function openLanguageModal(line_code = '', name = '', trans_code = '', stt_code = '') {
             const isEdit = !!line_code;
             const title = isEdit ? '修改語系' : '新增語系';
             const codeInput = isEdit 
@@ -447,7 +447,7 @@
                         <div><label>Line 語言代碼</label>${codeInput}</div>
                         <div><label>語言名稱</label><input type="text" id="lang-name-modal" value="${name}" required></div>
                         <div><label>翻譯語言代碼</label><input type="text" id="trans-code-modal" value="${trans_code}" required></div>
-                        <div><label>TTS 語言代碼</label><input type="text" id="tts-code-modal" value="${tts_code}" required></div>
+                        <div><label>STT 語言代碼</label><input type="text" id="stt-code-modal" value="${stt_code}" required></div>
                         <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem;">
                             <button onclick="document.getElementById('language-modal-backdrop').remove()">取消</button>
                             <button id="save-lang-btn">儲存</button>
@@ -462,7 +462,7 @@
                     line_lang_code: document.getElementById('line-code-modal').value,
                     lang_name: document.getElementById('lang-name-modal').value,
                     translation_lang_code: document.getElementById('trans-code-modal').value,
-                    tts_lang_code: document.getElementById('tts-code-modal').value
+                    stt_lang_code: document.getElementById('stt-code-modal').value
                 };
                 const url = isEdit ? '/api/languages/edit' : '/api/languages/add';
 

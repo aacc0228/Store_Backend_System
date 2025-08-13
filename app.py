@@ -249,7 +249,7 @@ def get_languages():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        query = "SELECT line_lang_code, lang_name, translation_lang_code, tts_lang_code FROM languages"
+        query = "SELECT line_lang_code, lang_name, translation_lang_code, stt_lang_code FROM languages"
         params = []
         if search_term:
             query += f" WHERE line_lang_code LIKE {param_marker} OR lang_name LIKE {param_marker}"
@@ -296,6 +296,60 @@ def auto_translate():
     except Exception as ex:
         logging.error(f"自動翻譯 API 發生錯誤: {ex}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/api/languages/add', methods=['POST'])
+def add_language():
+    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    line_lang_code = data.get('line_lang_code')
+    lang_name = data.get('lang_name')
+    translation_lang_code = data.get('translation_lang_code')
+    stt_lang_code = data.get('stt_lang_code')
+
+    if not all([line_lang_code, lang_name, translation_lang_code, stt_lang_code]):
+        return jsonify({"error": "所有欄位皆為必填項"}), 400
+    
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"INSERT INTO languages (line_lang_code, lang_name, translation_lang_code, stt_lang_code) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})", 
+                       (line_lang_code, lang_name, translation_lang_code, stt_lang_code))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "語言新增成功"})
+    except Exception as ex:
+        logging.error(f"API Add Language 資料庫錯誤: {ex}")
+        if "duplicate key" in str(ex).lower() or "unique constraint" in str(ex).lower() or "primary key" in str(ex).lower():
+             return jsonify({"error": f"Line 語言代碼 '{line_lang_code}' 已存在"}), 409
+        return jsonify({"error": "Database error"}), 500
+
+@app.route('/api/languages/edit', methods=['POST'])
+def edit_language():
+    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
+    data = request.json
+    line_lang_code = data.get('line_lang_code')
+    lang_name = data.get('lang_name')
+    translation_lang_code = data.get('translation_lang_code')
+    stt_lang_code = data.get('stt_lang_code')
+
+    if not all([line_lang_code, lang_name, translation_lang_code, stt_lang_code]):
+        return jsonify({"error": "所有欄位皆為必填項"}), 400
+
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE languages SET lang_name = {param_marker}, translation_lang_code = {param_marker}, stt_lang_code = {param_marker} WHERE line_lang_code = {param_marker}", 
+                       (lang_name, translation_lang_code, stt_lang_code, line_lang_code))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return jsonify({"success": True, "message": "語言更新成功"})
+    except Exception as ex:
+        logging.error(f"API Edit Language 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
 
 # --- 完整路由列表 ---
 @app.route('/')
