@@ -17,6 +17,7 @@
             padding: 2rem;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            width: 360px;
         }
         h2 {
             text-align: center;
@@ -35,6 +36,7 @@
             padding: 0.5rem;
             border: 1px solid #ddd;
             border-radius: 4px;
+            box-sizing: border-box;
         }
         button {
             width: 100%;
@@ -49,17 +51,33 @@
         button:hover {
             background-color: #0056b3;
         }
-        .error {
-            color: red;
+        /* 錯誤訊息的樣式 */
+        .flash-error {
+            color: #721c24;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 0.75rem 1.25rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
             text-align: center;
-            margin-top: 1rem;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
         <h2>登入</h2>
-        <form action="/login" method="post">
+
+        <!-- *** 新增此區塊以顯示錯誤訊息 *** -->
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="flash-error">
+              {{ messages[0] }}
+            </div>
+          {% endif %}
+        {% endwith %}
+        <!-- *************************** -->
+
+        <form action="{{ url_for('login') }}" method="post">
             <div class="form-group">
                 <label for="username">帳號:</label>
                 <input type="text" id="username" name="username" required>
@@ -70,9 +88,6 @@
             </div>
             <button type="submit">登入</button>
         </form>
-        {% if error %}
-            <p class="error">{{ error }}</p>
-        {% endif %}
     </div>
 </body>
 </html>

@@ -122,6 +122,32 @@ def check_credentials(username, password):
         logging.error(f"驗證時資料庫錯誤: {ex}")
     return False
 
+# --- 驗證函式 ---
+def validate_store_data(form):
+    """檢查店家資料是否超過欄位長度限制"""
+    VALIDATION_LIMITS = {
+        'store_name': 100, 'place_id': 255, 'top_dish_1': 100,
+        'top_dish_2': 100, 'top_dish_3': 100, 'top_dish_4': 100,
+        'top_dish_5': 100, 'main_photo_url': 255,
+    }
+    FIELD_NAMES = {
+        'store_name': '店家名稱', 'place_id': 'Google Map Place ID',
+        'top_dish_1': '人氣菜色 1', 'top_dish_2': '人氣菜色 2',
+        'top_dish_3': '人氣菜色 3', 'top_dish_4': '人氣菜色 4',
+        'top_dish_5': '人氣菜色 5', 'main_photo_url': '店家招牌照片 URL',
+    }
+    for field, limit in VALIDATION_LIMITS.items():
+        value = form.get(field)
+        if value and len(value) > limit:
+            return f"'{FIELD_NAMES.get(field, field)}' 的長度不可超過 {limit} 個字元。"
+    return None
+
+def validate_menu_item_data(form):
+    """檢查菜單品項資料是否超過欄位長度限制"""
+    if len(form.get('item_name', '')) > 100:
+        return "'品項名稱' 的長度不可超過 100 個字元。"
+    return None
+
 # --- API Endpoints ---
 @app.route('/api/stores')
 def get_stores():
@@ -171,32 +197,6 @@ def get_stores():
     except Exception as ex:
         logging.error(f"API Stores 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
-
-# --- 新增的 Health Check 路由 ---
-@app.route('/health')
-def health_check():
-    """提供一個簡單的健康檢查端點"""
-    db_status = "ok"
-    http_status = 200
-    try:
-        # 嘗試連接資料庫並執行一個簡單的查詢
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        logging.error(f"健康檢查失敗：資料庫連線錯誤: {e}")
-        db_status = "error"
-        http_status = 503  # Service Unavailable
-
-    return jsonify({
-        "status": "ok" if http_status == 200 else "error",
-        "services": {
-            "database": db_status
-        }
-    }), http_status
 
 @app.route('/api/all_stores')
 def get_all_stores():
@@ -301,50 +301,6 @@ def get_languages():
         logging.error(f"API Languages 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
-@app.route('/api/languages/add', methods=['POST'])
-def add_language():
-    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
-    data = request.json
-    lang_code = data.get('lang_code')
-    lang_name = data.get('lang_name')
-    if not lang_code or not lang_name:
-        return jsonify({"error": "語言代碼和名稱為必填項"}), 400
-    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(f"INSERT INTO languages (lang_code, lang_name) VALUES ({param_marker}, {param_marker})", (lang_code, lang_name))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return jsonify({"success": True, "message": "語言新增成功"})
-    except Exception as ex:
-        logging.error(f"API Add Language 資料庫錯誤: {ex}")
-        if "duplicate key" in str(ex).lower() or "unique constraint" in str(ex).lower():
-             return jsonify({"error": f"語言代碼 '{lang_code}' 已存在"}), 409
-        return jsonify({"error": "Database error"}), 500
-
-@app.route('/api/languages/edit', methods=['POST'])
-def edit_language():
-    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
-    data = request.json
-    original_lang_code = data.get('original_lang_code')
-    lang_name = data.get('lang_name')
-    if not original_lang_code or not lang_name:
-        return jsonify({"error": "缺少必要資訊"}), 400
-    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(f"UPDATE languages SET lang_name = {param_marker} WHERE lang_code = {param_marker}", (lang_name, original_lang_code))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return jsonify({"success": True, "message": "語言更新成功"})
-    except Exception as ex:
-        logging.error(f"API Edit Language 資料庫錯誤: {ex}")
-        return jsonify({"error": "Database error"}), 500
-
 # --- 完整路由列表 ---
 @app.route('/add_store', methods=['GET', 'POST'])
 def add_store():
@@ -355,8 +311,13 @@ def add_store():
         store_name = request.form.get('store_name')
         if not store_name or request.form.get('partner_level') is None:
             flash('店家名稱與合作等級為必填欄位。')
-            return redirect(url_for('add_store'))
+            return render_template('add_store.html', form_data=request.form)
         
+        validation_error = validate_store_data(request.form)
+        if validation_error:
+            flash(validation_error)
+            return render_template('add_store.html', form_data=request.form)
+            
         param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
         sql = f"""
             INSERT INTO stores (store_name, partner_level, gps_lat, gps_lng, place_id, review_summary, 
@@ -383,7 +344,9 @@ def add_store():
         except Exception as ex:
             flash('新增店家失敗，資料庫發生錯誤。')
             logging.error(f"新增店家時資料庫錯誤: {ex}")
-    return render_template('add_store.html')
+            return render_template('add_store.html', form_data=request.form)
+
+    return render_template('add_store.html', form_data={})
 
 @app.route('/edit_store/<int:store_id>', methods=['GET', 'POST'])
 def edit_store(store_id):
@@ -399,18 +362,14 @@ def edit_store(store_id):
         store_name = request.form.get('store_name')
         if not store_name:
             flash('店家名稱為必填欄位。')
-            cursor.execute(f"SELECT * FROM stores WHERE store_id = {param_marker}", (store_id,))
-            store_row = cursor.fetchone()
-            if store_row:
-                columns = [column[0] for column in cursor.description]
-                store_dict = dict(zip(columns, store_row))
-                cursor.close()
-                conn.close()
-                return render_template('edit_store.html', store=store_dict)
-            else:
-                cursor.close()
-                conn.close()
-                return redirect(url_for('admin'))
+            return render_template('edit_store.html', store=request.form)
+        
+        validation_error = validate_store_data(request.form)
+        if validation_error:
+            flash(validation_error)
+            store_data_from_form = request.form.to_dict()
+            store_data_from_form['store_id'] = store_id
+            return render_template('edit_store.html', store=store_data_from_form)
 
         update_data = (
             store_name, request.form.get('partner_level'), request.form.get('gps_lat') or None,
@@ -474,6 +433,36 @@ def edit_menu_item(item_id):
             flash('品項名稱與小份價格為必填欄位。')
             return redirect(url_for('edit_menu_item', item_id=item_id))
         
+        validation_error = validate_menu_item_data(request.form)
+        if validation_error:
+            flash(validation_error)
+            try:
+                cursor.execute(f"SELECT s.store_id, s.store_name FROM menu_items mi JOIN menus m ON mi.menu_id = m.menu_id JOIN stores s ON m.store_id = s.store_id WHERE mi.menu_item_id = {param_marker}", (item_id,))
+                store_row = cursor.fetchone()
+                store_info = dict(zip([c[0] for c in cursor.description], store_row)) if store_row else {}
+
+                cursor.execute("SELECT lang_code, lang_name FROM languages ORDER BY lang_code;")
+                languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+
+                item_from_form = {
+                    'menu_item_id': item_id, 'item_name': new_item_name,
+                    'price_small': price_small, 'price_big': request.form.get('price_big'),
+                    'translations': {}
+                }
+                lang_codes = request.form.getlist('lang_codes[]')
+                descriptions = request.form.getlist('descriptions[]')
+                if lang_codes and descriptions:
+                    for code, desc in zip(lang_codes, descriptions):
+                        item_from_form['translations'][code] = desc
+                
+                return render_template('edit_menu_item.html', item=item_from_form, store=store_info, languages=languages)
+            except Exception as ex:
+                 logging.error(f"重新渲染 edit_menu_item 頁面時出錯: {ex}")
+                 return redirect(url_for('admin', tab='menu'))
+            finally:
+                cursor.close()
+                conn.close()
+
         try:
             cursor.execute(f"SELECT m.store_id FROM menu_items mi JOIN menus m ON mi.menu_id = m.menu_id WHERE mi.menu_item_id = {param_marker}", (item_id,))
             result = cursor.fetchone()
@@ -505,7 +494,6 @@ def edit_menu_item(item_id):
             cursor.close()
             conn.close()
 
-    # GET 請求
     try:
         query_item = f"""
             SELECT mi.*, s.store_id, s.store_name
@@ -533,7 +521,6 @@ def edit_menu_item(item_id):
         languages = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
         return render_template('edit_menu_item.html', item=item, store=item, languages=languages)
-
     except Exception as ex:
         flash('讀取品項資料時發生錯誤。')
         logging.error(f"讀取菜單品項時錯誤: {ex}")
