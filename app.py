@@ -434,7 +434,7 @@ def get_ocr_menu_items(store_name):
             l.lang_name, omt.description
         FROM ocr_menu_items omi
         JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
-        LEFT JOIN ocr_menu_translations omt ON omi.ocr_menu_item_id = omt.ocr_menu_item_id
+        LEFT JOIN ocr_menu_translations omt ON omi.ocr_menu_item_id = omt.menu_item_id
         LEFT JOIN languages l ON omt.lang_code = l.translation_lang_code
         WHERE om.store_name = {param_marker}
         ORDER BY omi.ocr_menu_item_id, l.line_lang_code;
@@ -758,7 +758,7 @@ def edit_ocr_menu_item(item_id):
             """, (item_name, price_big, price_small, translated_desc, item_id))
 
             # 2. 刪除舊的多語言翻譯
-            cursor.execute(f"DELETE FROM ocr_menu_translations WHERE ocr_menu_item_id={param_marker}", (item_id,))
+            cursor.execute(f"DELETE FROM ocr_menu_translations WHERE menu_item_id={param_marker}", (item_id,))
             
             # 3. 插入新的多語言翻譯
             lang_codes = request.form.getlist('lang_codes[]')
@@ -767,7 +767,7 @@ def edit_ocr_menu_item(item_id):
                 for code, desc in zip(lang_codes, descriptions):
                     if code and desc: # 確保語言代碼和描述都有值
                         cursor.execute(f"""
-                            INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) 
+                            INSERT INTO ocr_menu_translations (menu_item_id, lang_code, description) 
                             VALUES ({param_marker}, {param_marker}, {param_marker})
                         """, (item_id, code, desc))
 
@@ -809,7 +809,7 @@ def edit_ocr_menu_item(item_id):
 
         # 查詢品項的多語言翻譯
         item_data['translations'] = {}
-        cursor.execute(f"SELECT lang_code, description FROM ocr_menu_translations WHERE ocr_menu_item_id = {param_marker}", (item_id,))
+        cursor.execute(f"SELECT lang_code, description FROM ocr_menu_translations WHERE menu_item_id = {param_marker}", (item_id,))
         for row in cursor.fetchall():
             item_data['translations'][row[0]] = row[1]
 
@@ -908,7 +908,7 @@ def import_ocr_menu():
 
             columns_trans = ['lang_code', 'description']
             cursor.execute(
-                f"SELECT lang_code, description FROM ocr_menu_translations WHERE ocr_menu_item_id = {param_marker}",
+                f"SELECT lang_code, description FROM ocr_menu_translations WHERE menu_item_id = {param_marker}",
                 (ocr_item['ocr_menu_item_id'],)
             )
             ocr_translations = [dict(zip(columns_trans, row)) for row in cursor.fetchall()]
@@ -929,7 +929,7 @@ def import_ocr_menu():
         # 使用子查詢，刪除所有與該店家相關的翻譯
         delete_translations_sql = f"""
             DELETE FROM ocr_menu_translations 
-            WHERE ocr_menu_item_id IN (
+            WHERE menu_item_id IN (
                 SELECT omi.ocr_menu_item_id FROM ocr_menu_items omi
                 JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
                 WHERE om.store_name = {param_marker}
@@ -1056,14 +1056,14 @@ def upload_ocr():
 
                 # 4.2 寫入 ocr_menu_translations (中文)
                 cursor.execute(
-                    f"INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                    f"INSERT INTO ocr_menu_translations (menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
                     (ocr_item_id, 'zh', original_name) # 假設中文的 lang_code 是 'zh'
                 )
                 
                 # 4.3 寫入 ocr_menu_translations (英文)
                 if translated_name:
                     cursor.execute(
-                        f"INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                        f"INSERT INTO ocr_menu_translations (menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
                         (ocr_item_id, 'en', translated_name) # 假設英文的 lang_code 是 'en'
                     )
                 item_count += 1
