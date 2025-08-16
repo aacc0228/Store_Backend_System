@@ -1086,7 +1086,7 @@ def upload_ocr():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_name;")
+        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_id desc;")
         columns = [c[0] for c in cursor.description]
         stores = [dict(zip(columns, row)) for row in cursor.fetchall()]
         cursor.close()
@@ -1137,10 +1137,10 @@ def add_store_user_link():
 
     # 處理 GET 請求
     try:
-        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_name;")
+        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_id desc;")
         stores = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
         
-        cursor.execute("SELECT user_id, user_name FROM users ORDER BY user_name;")
+        cursor.execute("SELECT user_id, user_name FROM users ORDER BY user_id desc;")
         users = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
         
         return render_template('add_store_user_link.html', stores=stores, users=users)

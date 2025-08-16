@@ -15,6 +15,7 @@ env:
   DB_USER: ${{ secrets.DB_USER }}
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
   DB_DATABASE: ${{ secrets.DB_DATABASE }}
+  GEMNINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
 jobs:
   deploy:
@@ -47,3 +48,4 @@ jobs:
             DB_USER=${{ env.DB_USER }}
             DB_PASSWORD=${{ env.DB_PASSWORD }}
             DB_DATABASE=${{ env.DB_DATABASE }}
+            GEMNINI_API_KEY=${{ env.GEMNINI_API_KEY }}
