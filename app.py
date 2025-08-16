@@ -6,6 +6,8 @@ import requests
 import json
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from dotenv import load_dotenv
+from datetime import datetime
+import base64
 
 # 載入 .env 檔案中的環境變數
 load_dotenv()
@@ -88,6 +90,107 @@ def translate_text_with_gemini(text, target_language_name):
         logging.error(f"呼叫 Gemini API 時發生錯誤: {e}")
         return None
 
+def process_menu_image_with_gemini(image_bytes):
+    """
+    使用 Gemini Pro Vision API 辨識菜單圖片、翻譯並回傳結構化 JSON。
+    """
+    if not GEMINI_API_KEY:
+        logging.error("Gemini API 金鑰未設定。")
+        return None, "Gemini API 金鑰未設定"
+
+    # 1. 將圖片轉換為 Base64 編碼
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+
+    # 2. 構造強大的 Prompt
+    prompt = """
+    你是一位專業的菜單資料分析師。請分析這張菜單圖片，並遵循以下指示：
+    1. 辨識出所有的菜單品項及其價格。如果一個品項有大小份的價格，請分別標示。
+    2. 將每個品項的名稱翻譯成專業且道地的英文。
+    3. 忽略任何非品項的裝飾性文字或描述。
+    4. 將結果格式化為一個 JSON 物件，頂層需有一個名為 "menu_items" 的 key，其 value 是一個包含所有品項的 array。
+    5. 每個品項物件應包含以下 key：
+       - "original_name": 原始的中文品項名稱 (string)。
+       - "translated_name": 翻譯後的英文品項名稱 (string)。
+       - "price_small": 小份或單一價格 (number)。
+       - "price_large": 大份的價格 (number)，如果沒有則為 null。
+    
+    範例輸出:
+    {
+      "menu_items": [
+        {
+          "original_name": "珍珠奶茶",
+          "translated_name": "Pearl Milk Tea",
+          "price_small": 50,
+          "price_large": 65
+        },
+        {
+          "original_name": "牛肉麵",
+          "translated_name": "Beef Noodle Soup",
+          "price_small": 150,
+          "price_large": null
+        }
+      ]
+    }
+    如果圖片無法辨識或不是菜單，請回傳 {"menu_items": []}。
+    請直接回傳 JSON 內容，不要包含任何額外的說明或 markdown 標記 (例如 ```json)。
+    """
+
+    # 3. 構造 API Payload
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": base64_image
+                        }
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+        }
+    }
+    
+    headers = {'Content-Type': 'application/json'}
+    
+    try:
+        # *** 修改處 START ***
+        # 確保 vision_api_url 是一個乾淨的 F-string 字串
+        vision_api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
+        
+        # 新增日誌，印出最終要呼叫的 URL，以供驗證
+        logging.info(f"準備呼叫 Gemini Vision API, URL: {vision_api_url}")
+        # *** 修改處 END ***
+
+        response = requests.post(vision_api_url, headers=headers, json=payload, timeout=90)
+        
+        logging.info(f"Gemini Vision API Raw Response Text: {response.text}")
+        response.raise_for_status()
+        result = response.json()
+        
+        if result.get('candidates'):
+            response_text = result['candidates'][0]['content']['parts'][0]['text']
+            parsed_json = json.loads(response_text)
+            return parsed_json, None
+        else:
+            error_details = json.dumps(result, ensure_ascii=False)
+            logging.error(f"Gemini Vision API 回應格式錯誤: {error_details}")
+            return None, f"API 回應格式錯誤: {error_details}"
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"呼叫 Gemini Vision API 時發生錯誤: {e}")
+        return None, f"呼叫 API 時發生錯誤: {e}"
+    except json.JSONDecodeError as e:
+        logging.error(f"解析 Gemini Vision API 回應的 JSON 時失敗: {e}")
+        return None, "解析 API 回應時失敗"
+    except Exception as e:
+        logging.error(f"處理 Gemini Vision API 請求時發生未知錯誤: {e}")
+        return None, "發生未知錯誤"
+
 # --- 3. 建立一個通用的資料庫連線函式 ---
 def get_db_connection():
     """根據設定檔建立並回傳資料庫連線"""
@@ -142,6 +245,15 @@ def validate_menu_item_data(form):
     """檢查菜單品項資料是否超過欄位長度限制"""
     if len(form.get('item_name', '')) > 100:
         return "'品項名稱' 的長度不可超過 100 個字元。"
+    return None
+
+def validate_ocr_menu_item_data(form):
+    """檢查 OCR 菜單品項資料是否超過欄位長度限制"""
+    if len(form.get('item_name', '')) > 100:
+        return "'品項名稱' 的長度不可超過 100 個字元。"
+    # 可在此處為 translated_desc 新增長度檢查
+    # if len(form.get('translated_desc', '')) > 500:
+    #     return "'翻譯後介紹' 的長度不可超過 500 個字元。"
     return None
 
 # --- API Endpoints ---
@@ -297,58 +409,52 @@ def auto_translate():
         logging.error(f"自動翻譯 API 發生錯誤: {ex}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/api/languages/add', methods=['POST'])
-def add_language():
+@app.route('/api/ocr_store_names')
+def get_ocr_store_names():
     if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
-    data = request.json
-    line_lang_code = data.get('line_lang_code')
-    lang_name = data.get('lang_name')
-    translation_lang_code = data.get('translation_lang_code')
-    stt_lang_code = data.get('stt_lang_code')
-
-    if not all([line_lang_code, lang_name, translation_lang_code, stt_lang_code]):
-        return jsonify({"error": "所有欄位皆為必填項"}), 400
-    
-    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(f"INSERT INTO languages (line_lang_code, lang_name, translation_lang_code, stt_lang_code) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})", 
-                       (line_lang_code, lang_name, translation_lang_code, stt_lang_code))
-        conn.commit()
+        cursor.execute("SELECT DISTINCT store_name FROM ocr_menus WHERE store_name IS NOT NULL ORDER BY store_name;")
+        store_names = [row[0] for row in cursor.fetchall()]
         cursor.close()
         conn.close()
-        return jsonify({"success": True, "message": "語言新增成功"})
+        return jsonify(store_names)
     except Exception as ex:
-        logging.error(f"API Add Language 資料庫錯誤: {ex}")
-        if "duplicate key" in str(ex).lower() or "unique constraint" in str(ex).lower() or "primary key" in str(ex).lower():
-             return jsonify({"error": f"Line 語言代碼 '{line_lang_code}' 已存在"}), 409
+        logging.error(f"API OCR Store Names 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
-@app.route('/api/languages/edit', methods=['POST'])
-def edit_language():
+@app.route('/api/ocr_menus/<store_name>')
+def get_ocr_menu_items(store_name):
     if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
-    data = request.json
-    line_lang_code = data.get('line_lang_code')
-    lang_name = data.get('lang_name')
-    translation_lang_code = data.get('translation_lang_code')
-    stt_lang_code = data.get('stt_lang_code')
-
-    if not all([line_lang_code, lang_name, translation_lang_code, stt_lang_code]):
-        return jsonify({"error": "所有欄位皆為必填項"}), 400
-
     param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    query = f"""
+        SELECT 
+            omi.ocr_menu_item_id, omi.item_name, omi.price_big, omi.price_small, omi.translated_desc,
+            l.lang_name, omt.description
+        FROM ocr_menu_items omi
+        JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
+        LEFT JOIN ocr_menu_translations omt ON omi.ocr_menu_item_id = omt.ocr_menu_item_id
+        LEFT JOIN languages l ON omt.lang_code = l.translation_lang_code
+        WHERE om.store_name = {param_marker}
+        ORDER BY omi.ocr_menu_item_id, l.line_lang_code;
+    """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(f"UPDATE languages SET lang_name = {param_marker}, translation_lang_code = {param_marker}, stt_lang_code = {param_marker} WHERE line_lang_code = {param_marker}", 
-                       (lang_name, translation_lang_code, stt_lang_code, line_lang_code))
-        conn.commit()
+        cursor.execute(query, (store_name,))
+        items_dict = {}
+        for row in cursor.fetchall():
+            item_id = row[0]
+            if item_id not in items_dict:
+                items_dict[item_id] = {'ocr_menu_item_id': row[0], 'item_name': row[1], 'price_big': row[2], 'price_small': row[3], 'translated_desc': row[4], 'translations': []}
+            if row[5] and row[6]:
+                items_dict[item_id]['translations'].append({'lang_name': row[5], 'description': row[6]})
         cursor.close()
         conn.close()
-        return jsonify({"success": True, "message": "語言更新成功"})
+        return jsonify(list(items_dict.values()))
     except Exception as ex:
-        logging.error(f"API Edit Language 資料庫錯誤: {ex}")
+        logging.error(f"API OCR Menu Items 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
 # --- 完整路由列表 ---
@@ -604,6 +710,520 @@ def edit_menu_item(item_id):
         return redirect(url_for('admin', tab='menu'))
     finally:
         cursor.close()
+        conn.close()
+
+@app.route('/edit_ocr_menu_item/<int:item_id>', methods=['GET', 'POST'])
+def edit_ocr_menu_item(item_id):
+    if 'username' not in session:
+        flash('請先登入。')
+        return redirect(url_for('home'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    if request.method == 'POST':
+        item_name = request.form.get('item_name')
+        price_small = request.form.get('price_small')
+        
+        # 取得原始店家名稱，以便在出錯或成功時能正確導向
+        cursor.execute(f"""
+            SELECT om.store_name 
+            FROM ocr_menu_items omi 
+            JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id 
+            WHERE omi.ocr_menu_item_id = {param_marker}
+        """, (item_id,))
+        store_result = cursor.fetchone()
+        store_name = store_result[0] if store_result else None
+
+        if not item_name or not price_small:
+            flash('品項名稱與小份價格為必填欄位。')
+            return redirect(url_for('edit_ocr_menu_item', item_id=item_id))
+        
+        validation_error = validate_ocr_menu_item_data(request.form)
+        if validation_error:
+            flash(validation_error)
+            # 如果驗證失敗，需要重新準備資料以渲染範本
+            # 這裡我們直接導向回 GET 請求，簡化處理
+            return redirect(url_for('edit_ocr_menu_item', item_id=item_id))
+
+        try:
+            # 1. 更新 ocr_menu_items 主表
+            price_big = request.form.get('price_big') or None
+            translated_desc = request.form.get('translated_desc') or None
+            cursor.execute(f"""
+                UPDATE ocr_menu_items 
+                SET item_name={param_marker}, price_big={param_marker}, price_small={param_marker}, translated_desc={param_marker}
+                WHERE ocr_menu_item_id={param_marker}
+            """, (item_name, price_big, price_small, translated_desc, item_id))
+
+            # 2. 刪除舊的多語言翻譯
+            cursor.execute(f"DELETE FROM ocr_menu_translations WHERE ocr_menu_item_id={param_marker}", (item_id,))
+            
+            # 3. 插入新的多語言翻譯
+            lang_codes = request.form.getlist('lang_codes[]')
+            descriptions = request.form.getlist('descriptions[]')
+            if lang_codes and descriptions:
+                for code, desc in zip(lang_codes, descriptions):
+                    if code and desc: # 確保語言代碼和描述都有值
+                        cursor.execute(f"""
+                            INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) 
+                            VALUES ({param_marker}, {param_marker}, {param_marker})
+                        """, (item_id, code, desc))
+
+            conn.commit()
+            flash(f"OCR 品項 '{item_name}' 更新成功！")
+            
+            # 導向回 OCR 管理頁面，並選定剛才的店家
+            return redirect(url_for('admin', tab='ocr', store_name=store_name))
+
+        except Exception as ex:
+            conn.rollback()
+            flash('更新 OCR 品項失敗，資料庫發生錯誤。')
+            logging.error(f"更新 OCR 菜單品項時資料庫錯誤: {ex}")
+            return redirect(url_for('edit_ocr_menu_item', item_id=item_id))
+        finally:
+            cursor.close()
+            conn.close()
+
+    # 處理 GET 請求
+    try:
+        # 查詢品項本身以及其所屬的店家名稱
+        query_item = f"""
+            SELECT omi.*, om.store_name
+            FROM ocr_menu_items omi
+            JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
+            WHERE omi.ocr_menu_item_id = {param_marker}
+        """
+        cursor.execute(query_item, (item_id,))
+        item_row = cursor.fetchone()
+
+        if not item_row:
+            flash('找不到該 OCR 菜單品項。')
+            return redirect(url_for('admin', tab='ocr'))
+        
+        columns = [c[0] for c in cursor.description]
+        item_data = dict(zip(columns, item_row))
+        # 建立一個 store 的物件，讓範本可以一致地存取 store.store_name
+        store_data = {'store_name': item_data['store_name']}
+
+        # 查詢品項的多語言翻譯
+        item_data['translations'] = {}
+        cursor.execute(f"SELECT lang_code, description FROM ocr_menu_translations WHERE ocr_menu_item_id = {param_marker}", (item_id,))
+        for row in cursor.fetchall():
+            item_data['translations'][row[0]] = row[1]
+
+        # 查詢所有可用的語言以填充下拉選單
+        cursor.execute("SELECT line_lang_code, lang_name, translation_lang_code FROM languages ORDER BY line_lang_code;")
+        lang_columns = [c[0] for c in cursor.description]
+        languages = [dict(zip(lang_columns, row)) for row in cursor.fetchall()]
+
+        return render_template('edit_ocr_menu_item.html', item=item_data, store=store_data, languages=languages)
+
+    except Exception as ex:
+        flash('讀取 OCR 品項資料時發生錯誤。')
+        logging.error(f"讀取 OCR 菜單品項時錯誤: {ex}")
+        return redirect(url_for('admin', tab='ocr'))
+    finally:
+        cursor.close()
+        conn.close()
+
+# app.py
+
+# ... (檔案的其他部分保持不變) ...
+
+@app.route('/import_ocr_menu', methods=['POST'])
+def import_ocr_menu():
+    """
+    將指定 OCR 店家名稱的所有菜單項目匯入到正式的菜單系統中，
+    並在成功後刪除原始的 OCR 資料。
+    """
+    if 'username' not in session:
+        flash('請先登入。', 'error')
+        return redirect(url_for('home'))
+
+    ocr_store_name = request.form.get('ocr_store_name')
+    if not ocr_store_name:
+        flash('未提供店家名稱，無法匯入。', 'error')
+        return redirect(url_for('admin', tab='ocr'))
+
+    conn = get_db_connection()
+    if DB_TYPE == 'MYSQL':
+        conn.autocommit = False
+    
+    cursor = conn.cursor()
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    try:
+        # 步驟 1: 驗證店家是否存在於 `stores` 表，並取得 `store_id`
+        cursor.execute(f"SELECT store_id FROM stores WHERE store_name = {param_marker}", (ocr_store_name,))
+        store_row = cursor.fetchone()
+        if not store_row:
+            flash(f"匯入失敗：在正式店家列表中找不到名為 '{ocr_store_name}' 的店家。請先新增店家資料。", 'error')
+            conn.close()
+            return redirect(url_for('admin', tab='ocr'))
+        store_id = store_row[0]
+
+        # 步驟 2: 建立菜單 ID (menu_id)
+        current_time = datetime.now()
+        sql_insert_menu = f"""
+            INSERT INTO menus (store_id, version, effective_date, created_at) 
+            VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})
+        """
+        cursor.execute(sql_insert_menu, (store_id, 1, current_time, current_time))
+        if DB_TYPE == 'MYSQL':
+            menu_id = cursor.lastrowid
+        else: # SQL_SERVER
+            cursor.execute("SELECT @@IDENTITY AS id")
+            menu_id = cursor.fetchone()[0]
+        
+        # 步驟 3: 取得此 OCR 店家的所有菜單項目
+        columns_item = ['ocr_menu_item_id', 'item_name', 'price_big', 'price_small']
+        query_ocr_items = f"""
+            SELECT omi.ocr_menu_item_id, omi.item_name, omi.price_big, omi.price_small
+            FROM ocr_menu_items omi
+            JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
+            WHERE om.store_name = {param_marker}
+        """
+        cursor.execute(query_ocr_items, (ocr_store_name,))
+        ocr_items = [dict(zip(columns_item, row)) for row in cursor.fetchall()]
+
+        if not ocr_items:
+            flash(f"店家 '{ocr_store_name}' 沒有可匯入的 OCR 菜單項目。", 'success')
+            conn.close()
+            return redirect(url_for('admin', tab='ocr'))
+
+        # 步驟 4-6: 遍歷、插入品項和翻譯
+        imported_count = 0
+        for ocr_item in ocr_items:
+            cursor.execute(
+                f"INSERT INTO menu_items (menu_id, item_name, price_big, price_small) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})",
+                (menu_id, ocr_item['item_name'], ocr_item.get('price_big'), ocr_item.get('price_small'))
+            )
+            if DB_TYPE == 'MYSQL':
+                new_menu_item_id = cursor.lastrowid
+            else: # SQL_SERVER
+                cursor.execute("SELECT @@IDENTITY AS id")
+                new_menu_item_id = cursor.fetchone()[0]
+
+            columns_trans = ['lang_code', 'description']
+            cursor.execute(
+                f"SELECT lang_code, description FROM ocr_menu_translations WHERE ocr_menu_item_id = {param_marker}",
+                (ocr_item['ocr_menu_item_id'],)
+            )
+            ocr_translations = [dict(zip(columns_trans, row)) for row in cursor.fetchall()]
+            
+            for trans in ocr_translations:
+                cursor.execute(
+                    f"INSERT INTO menu_translations (menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                    (new_menu_item_id, trans['lang_code'], trans['description'])
+                )
+            imported_count += 1
+        
+        # --- *** 新增的刪除邏輯 START *** ---
+        # 步驟 7: 匯入成功後，刪除原始 OCR 資料
+        # 為了避免外鍵約束問題，刪除順序為：translations -> items -> menus
+        logging.info(f"開始為店家 '{ocr_store_name}' 刪除已匯入的 OCR 資料...")
+
+        # 7.1 刪除 ocr_menu_translations
+        # 使用子查詢，刪除所有與該店家相關的翻譯
+        delete_translations_sql = f"""
+            DELETE FROM ocr_menu_translations 
+            WHERE ocr_menu_item_id IN (
+                SELECT omi.ocr_menu_item_id FROM ocr_menu_items omi
+                JOIN ocr_menus om ON omi.ocr_menu_id = om.ocr_menu_id
+                WHERE om.store_name = {param_marker}
+            )
+        """
+        cursor.execute(delete_translations_sql, (ocr_store_name,))
+        logging.info(f"刪除了 {cursor.rowcount} 筆 OCR 翻譯。")
+
+        # 7.2 刪除 ocr_menu_items
+        # 使用子查詢，刪除所有與該店家相關的品項
+        delete_items_sql = f"""
+            DELETE FROM ocr_menu_items 
+            WHERE ocr_menu_id IN (
+                SELECT ocr_menu_id FROM ocr_menus WHERE store_name = {param_marker}
+            )
+        """
+        cursor.execute(delete_items_sql, (ocr_store_name,))
+        logging.info(f"刪除了 {cursor.rowcount} 筆 OCR 品項。")
+
+        # 7.3 刪除 ocr_menus
+        cursor.execute(f"DELETE FROM ocr_menus WHERE store_name = {param_marker}", (ocr_store_name,))
+        logging.info(f"刪除了 {cursor.rowcount} 筆 OCR 菜單主紀錄。")
+        # --- *** 新增的刪除邏輯 END *** ---
+
+        # 步驟 8: 提交事務 (同時保存匯入的新資料和刪除的舊資料)
+        conn.commit()
+        flash(f"成功為店家 '{ocr_store_name}' 匯入 {imported_count} 個菜單品項，並已清除原始 OCR 資料！", 'success')
+        return redirect(url_for('admin', tab='menu', store_id=store_id))
+
+    except Exception as e:
+        # 如果任何步驟出錯，則回滾所有變更
+        conn.rollback()
+        logging.error(f"OCR menu import failed for store '{ocr_store_name}': {e}")
+        flash(f"匯入失敗，發生嚴重錯誤：{e}", 'error')
+        return redirect(url_for('admin', tab='ocr'))
+    finally:
+        # 確保連線被關閉
+        if conn:
+            conn.close()
+
+# app.py
+
+# ... (檔案的其他部分保持不變) ...
+
+@app.route('/upload_ocr', methods=['GET', 'POST'])
+def upload_ocr():
+    """
+    處理菜單圖片上傳，使用 Gemini Vision 進行辨識與翻譯，並將結果存入資料庫。
+    """
+    if 'username' not in session:
+        flash('請先登入。', 'error')
+        return redirect(url_for('home'))
+
+    if request.method == 'POST':
+        store_id = request.form.get('store_id')
+        image_file = request.files.get('image')
+
+        if not store_id or not image_file or image_file.filename == '':
+            flash('店家和圖片檔案皆為必填選項。', 'error')
+            return redirect(url_for('upload_ocr'))
+        
+        image_bytes = image_file.read()
+        
+        # 1. 呼叫 Gemini Vision API 處理圖片
+        ocr_result, error = process_menu_image_with_gemini(image_bytes)
+
+        if error or not ocr_result or not ocr_result.get("menu_items"):
+            flash(f"菜單辨識失敗：{error or 'Gemini 未能辨識出任何菜單項目。'}", 'error')
+            return redirect(url_for('upload_ocr'))
+
+        conn = get_db_connection()
+        if DB_TYPE == 'MYSQL':
+            conn.autocommit = False
+        cursor = conn.cursor()
+        param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+        try:
+            # 2. 查詢店家名稱
+            cursor.execute(f"SELECT store_name FROM stores WHERE store_id = {param_marker}", (store_id,))
+            store_row = cursor.fetchone()
+            if not store_row:
+                flash(f"找不到 Store ID 為 {store_id} 的店家。", 'error')
+                return redirect(url_for('upload_ocr'))
+            store_name = store_row[0]
+
+           # 3. 寫入 ocr_menus 表
+            current_time = datetime.now()  # 取得目前時間
+            fixed_user_id = 99999          # 設定固定的 user_id
+
+            sql_insert_ocr_menu = f"""
+                INSERT INTO ocr_menus (store_name, store_id, user_id, upload_time) 
+                VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})
+            """
+            cursor.execute(sql_insert_ocr_menu, (store_name, store_id, fixed_user_id, current_time))
+            
+            if DB_TYPE == 'MYSQL':
+                ocr_menu_id = cursor.lastrowid
+            else: # SQL_SERVER
+                cursor.execute("SELECT @@IDENTITY AS id")
+                ocr_menu_id = cursor.fetchone()[0]
+
+            # 4. 遍歷辨識結果，寫入 ocr_menu_items 和 ocr_menu_translations
+            item_count = 0
+            for item in ocr_result["menu_items"]:
+                original_name = item.get("original_name")
+                translated_name = item.get("translated_name")
+                price_small = item.get("price_small")
+                price_large = item.get("price_large")
+
+                if not original_name or price_small is None:
+                    logging.warning(f"跳過不完整的項目: {item}")
+                    continue
+
+                # 4.1 寫入 ocr_menu_items
+                cursor.execute(
+                    f"INSERT INTO ocr_menu_items (ocr_menu_id, item_name, price_small, price_big) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})",
+                    (ocr_menu_id, original_name, price_small, price_large)
+                )
+                if DB_TYPE == 'MYSQL':
+                    ocr_item_id = cursor.lastrowid
+                else: # SQL_SERVER
+                    cursor.execute("SELECT @@IDENTITY AS id")
+                    ocr_item_id = cursor.fetchone()[0]
+
+                # 4.2 寫入 ocr_menu_translations (中文)
+                cursor.execute(
+                    f"INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                    (ocr_item_id, 'zh', original_name) # 假設中文的 lang_code 是 'zh'
+                )
+                
+                # 4.3 寫入 ocr_menu_translations (英文)
+                if translated_name:
+                    cursor.execute(
+                        f"INSERT INTO ocr_menu_translations (ocr_menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                        (ocr_item_id, 'en', translated_name) # 假設英文的 lang_code 是 'en'
+                    )
+                item_count += 1
+            
+            # 5. 提交事務
+            conn.commit()
+            flash(f"菜單辨識成功！已為店家 '{store_name}' 新增 {item_count} 個項目。", 'success')
+            return redirect(url_for('admin', tab='ocr', store_name=store_name))
+
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"將 OCR 結果存入資料庫時發生錯誤: {e}")
+            flash(f"辨識結果存檔失敗，發生內部錯誤: {e}", 'error')
+            return redirect(url_for('upload_ocr'))
+        finally:
+            if conn:
+                conn.close()
+
+    # GET 請求的處理邏輯 (保持不變)
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_name;")
+        columns = [c[0] for c in cursor.description]
+        stores = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return render_template('upload_ocr.html', stores=stores)
+    except Exception as ex:
+        logging.error(f"讀取店家列表以供上傳頁面使用時發生錯誤: {ex}")
+        flash('無法讀取店家列表，請稍後再試。', 'error')
+        return redirect(url_for('admin', tab='ocr'))
+
+@app.route('/add_store_user_link', methods=['GET', 'POST'])
+def add_store_user_link():
+    """處理新增/修改人店綁定的獨立頁面"""
+    if 'username' not in session:
+        flash('請先登入。', 'error')
+        return redirect(url_for('home'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    if request.method == 'POST':
+        store_id = request.form.get('store_id')
+        user_id = request.form.get('user_id')
+
+        if not store_id or not user_id:
+            flash('店家和使用者皆為必填項。', 'error')
+            # POST 失敗時也需要重新載入資料以渲染範本
+            return redirect(url_for('add_store_user_link'))
+
+        sql = f"INSERT INTO store_user_link (store_id, user_id) VALUES ({param_marker}, {param_marker});"
+        try:
+            cursor.execute(sql, (store_id, user_id))
+            conn.commit()
+            flash('綁定成功！', 'success')
+            return redirect(url_for('admin', tab='binding'))
+        except Exception as ex:
+            conn.rollback()
+            if 'UNIQUE KEY constraint' in str(ex) or 'UQ_store_user_link_unique_pair' in str(ex) or 'Duplicate entry' in str(ex):
+                flash('新增失敗：此綁定關係已存在。', 'error')
+            else:
+                flash('新增失敗，資料庫發生錯誤。', 'error')
+                logging.error(f"新增人店綁定時資料庫錯誤: {ex}")
+            return redirect(url_for('add_store_user_link'))
+        finally:
+            cursor.close()
+            conn.close()
+
+    # 處理 GET 請求
+    try:
+        cursor.execute("SELECT store_id, store_name FROM stores ORDER BY store_name;")
+        stores = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT user_id, user_name FROM users ORDER BY user_name;")
+        users = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        
+        return render_template('add_store_user_link.html', stores=stores, users=users)
+    except Exception as ex:
+        logging.error(f"載入新增綁定頁面時發生錯誤: {ex}")
+        flash('無法載入頁面資料，請稍後再試。', 'error')
+        return redirect(url_for('admin'))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/api/all_users')
+def get_all_users():
+    """獲取所有使用者列表 API"""
+    if 'username' not in session: 
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, user_name, line_user_id FROM users ORDER BY user_name;")
+        users = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        return jsonify(users)
+    except Exception as ex:
+        logging.error(f"API All Users 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/store_user_links', methods=['GET'])
+def get_store_user_links():
+    """獲取所有人店綁定關係 API"""
+    if 'username' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    query = """
+        SELECT sul.link_id, s.store_name, u.user_name
+        FROM store_user_link sul
+        JOIN stores s ON sul.store_id = s.store_id
+        JOIN users u ON sul.user_id = u.user_id
+        ORDER BY s.store_name, u.user_name;
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query)
+        links = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        return jsonify(links)
+    except Exception as ex:
+        logging.error(f"API Get Store User Links 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/store_user_links/delete', methods=['POST'])
+def delete_store_user_link():
+    """刪除人店綁定關係 API"""
+    if 'username' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+        
+    data = request.json
+    link_id = data.get('link_id')
+
+    if not link_id:
+        return jsonify({"error": "缺少 link_id"}), 400
+
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    sql = f"DELETE FROM store_user_link WHERE link_id = {param_marker};"
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(sql, (link_id,))
+        conn.commit()
+        
+        if cursor.rowcount > 0:
+            return jsonify({"success": True, "message": "刪除成功！"})
+        else:
+            return jsonify({"error": "找不到該綁定關係"}), 404
+            
+    except Exception as ex:
+        logging.error(f"API Delete Store User Link 資料庫錯誤: {ex}")
+        return jsonify({"error": "資料庫錯誤"}), 500
+    finally:
         conn.close()
 
 if __name__ == '__main__':

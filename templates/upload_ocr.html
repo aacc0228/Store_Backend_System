@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>上傳菜單 - 管理員後台</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', 'Microsoft JhengHei', Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background-color: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 1rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+            color: #555;
+        }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+        }
+        .form-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #eee;
+        }
+        .btn {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+            text-decoration: none;
+            text-align: center;
+        }
+        .btn-primary { background-color: #007bff; }
+        .btn-primary:hover { background-color: #0056b3; }
+        .btn-secondary { background-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5a6268; }
+        .flash-message-error {
+            padding: 1rem; background-color: #f8d7da; color: #721c24;
+            border: 1px solid #f5c6cb; border-radius: 4px;
+            margin-bottom: 1.5rem; text-align: center;
+        }
+        .loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: none; justify-content: center; align-items: center;
+            flex-direction: column; z-index: 1000; font-size: 1.2rem; color: #333;
+        }
+        .spinner {
+            border: 8px solid #f3f3f3; border-top: 8px solid #3498db;
+            border-radius: 50%; width: 60px; height: 60px;
+            animation: spin 2s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>正在上傳並處理菜單，請稍候...</p>
+    </div>
+
+    <div class="container">
+        <h1>上傳菜單進行 OCR 辨識</h1>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              {% if category == 'error' %}
+                <div class="flash-message-error">{{ message }}</div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="post" enctype="multipart/form-data" onsubmit="showLoading()">
+            <div class="form-group">
+                <label for="store_id">選擇店家</label>
+                <select id="store_id" name="store_id" required>
+                    <option value="">-- 請選擇要上傳菜單的店家 --</option>
+                    {% for store in stores %}
+                        <option value="{{ store.store_id }}">{{ store.store_name }} (ID: {{ store.store_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="image">上傳菜單圖片</label>
+                <input type="file" id="image" name="image" accept="image/png, image/jpeg, image/gif" required>
+            </div>
+            <div class="form-actions">
+                <a href="{{ url_for('admin', tab='ocr') }}" class="btn btn-secondary">取消</a>
+                <button type="submit" class="btn btn-primary">送出辨識</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function showLoading() {
+            document.getElementById('loading-overlay').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>
