@@ -1251,7 +1251,14 @@ def add_menu_item(store_id):
         
         try:
             # 步驟 1: 查詢店家現有的最新菜單，如果沒有則建立一個
-            cursor.execute(f"SELECT menu_id FROM menus WHERE store_id = {param_marker} ORDER BY version DESC", (store_id,))
+            if DB_TYPE == 'MYSQL':
+                # MySQL 使用 LIMIT 1
+                query = f"SELECT menu_id FROM menus WHERE store_id = {param_marker} ORDER BY version DESC LIMIT 1"
+            else: # SQL_SERVER
+                # SQL Server 使用 TOP 1
+                query = f"SELECT TOP 1 menu_id FROM menus WHERE store_id = {param_marker} ORDER BY version DESC"
+            
+            cursor.execute(query, (store_id,)) # 執行修正後的查詢
             menu_row = cursor.fetchone()
             menu_id = None
             if menu_row:
@@ -1349,7 +1356,14 @@ def add_ocr_menu_item():
         
         try:
             # 步驟 1: 查詢或建立此店家的 ocr_menu 紀錄
-            cursor.execute(f"SELECT ocr_menu_id FROM ocr_menus WHERE store_name = {param_marker}", (store_name,))
+            if DB_TYPE == 'MYSQL':
+                # MySQL 使用 LIMIT 1
+                query = f"SELECT ocr_menu_id, store_id FROM ocr_menus WHERE store_name = {param_marker} LIMIT 1"
+            else: # SQL_SERVER
+                # SQL Server 使用 TOP 1
+                query = f"SELECT TOP 1 ocr_menu_id, store_id FROM ocr_menus WHERE store_name = {param_marker}"
+            
+            cursor.execute(query, (store_name,))
             menu_row = cursor.fetchone()
             ocr_menu_id = None
             if menu_row:
