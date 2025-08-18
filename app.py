@@ -55,7 +55,7 @@ ADMIN_PAGE = 'admin.html'
 
 # --- Gemini API 相關設定 ---
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={GEMINI_API_KEY}"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GEMINI_API_KEY}"
 
 def translate_text_with_gemini(text, target_language_name):
     """使用 Gemini API 翻譯文字"""
@@ -1224,6 +1224,211 @@ def delete_store_user_link():
         logging.error(f"API Delete Store User Link 資料庫錯誤: {ex}")
         return jsonify({"error": "資料庫錯誤"}), 500
     finally:
+        conn.close()
+
+@app.route('/add_menu_item/<int:store_id>', methods=['GET', 'POST'])
+def add_menu_item(store_id):
+    if 'username' not in session:
+        flash('請先登入。')
+        return redirect(url_for('home'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    if request.method == 'POST':
+        item_name = request.form.get('item_name')
+        price_small = request.form.get('price_small')
+
+        if not item_name or not price_small:
+            flash('品項名稱與小份價格為必填欄位。')
+            return redirect(url_for('add_menu_item', store_id=store_id))
+
+        validation_error = validate_menu_item_data(request.form)
+        if validation_error:
+            flash(validation_error)
+            return redirect(url_for('add_menu_item', store_id=store_id))
+        
+        try:
+            # 步驟 1: 查詢店家現有的最新菜單，如果沒有則建立一個
+            cursor.execute(f"SELECT menu_id FROM menus WHERE store_id = {param_marker} ORDER BY version DESC", (store_id,))
+            menu_row = cursor.fetchone()
+            menu_id = None
+            if menu_row:
+                menu_id = menu_row[0]
+            else:
+                # 如果店家沒有任何菜單，則建立第一版
+                current_time = datetime.now()
+                cursor.execute(f"INSERT INTO menus (store_id, version, effective_date, created_at) VALUES ({param_marker}, 1, {param_marker}, {param_marker})",
+                               (store_id, current_time, current_time))
+                if DB_TYPE == 'MYSQL':
+                    menu_id = cursor.lastrowid
+                else: # SQL_SERVER
+                    cursor.execute("SELECT @@IDENTITY AS id")
+                    menu_id = cursor.fetchone()[0]
+
+            # 步驟 2: 插入新的菜單品項
+            price_big = request.form.get('price_big') or None
+            cursor.execute(f"INSERT INTO menu_items (menu_id, item_name, price_big, price_small) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})",
+                           (menu_id, item_name, price_big, price_small))
+            
+            if DB_TYPE == 'MYSQL':
+                new_item_id = cursor.lastrowid
+            else: # SQL_SERVER
+                cursor.execute("SELECT @@IDENTITY AS id")
+                new_item_id = cursor.fetchone()[0]
+
+            # 步驟 3: 插入對應的多語言翻譯
+            lang_codes = request.form.getlist('lang_codes[]')
+            descriptions = request.form.getlist('descriptions[]')
+            if lang_codes and descriptions:
+                for code, desc in zip(lang_codes, descriptions):
+                    if code and desc:
+                        cursor.execute(f"INSERT INTO menu_translations (menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
+                                       (new_item_id, code, desc))
+
+            conn.commit()
+            flash(f"品項 '{item_name}' 新增成功！", 'success')
+            return redirect(url_for('admin', tab='menu', store_id=store_id))
+        except Exception as ex:
+            conn.rollback()
+            flash('新增品項失敗，資料庫發生錯誤。', 'error')
+            logging.error(f"新增菜單品項時資料庫錯誤: {ex}")
+            return redirect(url_for('add_menu_item', store_id=store_id))
+        finally:
+            cursor.close()
+            conn.close()
+
+    # 處理 GET 請求
+    try:
+        # 取得店家資訊
+        cursor.execute(f"SELECT store_id, store_name FROM stores WHERE store_id = {param_marker}", (store_id,))
+        store_row = cursor.fetchone()
+        if not store_row:
+            flash('找不到指定的店家。')
+            return redirect(url_for('admin', tab='menu'))
+        
+        store = dict(zip([c[0] for c in cursor.description], store_row))
+
+        # 取得所有可用語言
+        cursor.execute("SELECT line_lang_code, lang_name, translation_lang_code FROM languages ORDER BY line_lang_code;")
+        languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+
+        return render_template('add_menu_item.html', store=store, languages=languages)
+    except Exception as ex:
+        flash('讀取店家資料時發生錯誤。')
+        logging.error(f"讀取新增菜單頁面資料時錯誤: {ex}")
+        return redirect(url_for('admin', tab='menu'))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/add_ocr_menu_item', methods=['GET', 'POST'])
+def add_ocr_menu_item():
+    if 'username' not in session:
+        flash('請先登入。', 'error')
+        return redirect(url_for('home'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    if request.method == 'POST':
+        store_name = request.form.get('store_name')
+        item_name = request.form.get('item_name')
+        price_small = request.form.get('price_small')
+
+        if not store_name or not item_name or not price_small:
+            flash('店家名稱、品項名稱與小份價格為必填欄位。', 'error')
+            return redirect(url_for('add_ocr_menu_item', store_name=store_name))
+
+        validation_error = validate_ocr_menu_item_data(request.form)
+        if validation_error:
+            flash(validation_error, 'error')
+            return redirect(url_for('add_ocr_menu_item', store_name=store_name))
+        
+        try:
+            # 步驟 1: 查詢或建立此店家的 ocr_menu 紀錄
+            cursor.execute(f"SELECT ocr_menu_id FROM ocr_menus WHERE store_name = {param_marker}", (store_name,))
+            menu_row = cursor.fetchone()
+            ocr_menu_id = None
+            if menu_row:
+                ocr_menu_id = menu_row[0]
+            else:
+                # 如果沒有 OCR 菜單紀錄，則建立一筆新的
+                cursor.execute(f"SELECT store_id FROM stores WHERE store_name = {param_marker}", (store_name,))
+                store_row = cursor.fetchone()
+                store_id = store_row[0] if store_row else None
+
+                current_time = datetime.now()
+                fixed_user_id = 99999 # 使用與上傳功能相同的固定 user_id
+                cursor.execute(f"""
+                    INSERT INTO ocr_menus (store_name, store_id, user_id, upload_time) 
+                    VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})
+                """, (store_name, store_id, fixed_user_id, current_time))
+
+                if DB_TYPE == 'MYSQL':
+                    ocr_menu_id = cursor.lastrowid
+                else: # SQL_SERVER
+                    cursor.execute("SELECT @@IDENTITY AS id")
+                    ocr_menu_id = cursor.fetchone()[0]
+
+            # 步驟 2: 插入新的 OCR 菜單品項
+            price_big = request.form.get('price_big') or None
+            cursor.execute(f"""
+                INSERT INTO ocr_menu_items (ocr_menu_id, item_name, price_big, price_small) 
+                VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})
+            """, (ocr_menu_id, item_name, price_big, price_small))
+            
+            if DB_TYPE == 'MYSQL':
+                new_item_id = cursor.lastrowid
+            else: # SQL_SERVER
+                cursor.execute("SELECT @@IDENTITY AS id")
+                new_item_id = cursor.fetchone()[0]
+
+            # 步驟 3: 插入多語言翻譯
+            lang_codes = request.form.getlist('lang_codes[]')
+            descriptions = request.form.getlist('descriptions[]')
+            if lang_codes and descriptions:
+                for code, desc in zip(lang_codes, descriptions):
+                    if code and desc:
+                        cursor.execute(f"""
+                            INSERT INTO ocr_menu_translations (menu_item_id, lang_code, description) 
+                            VALUES ({param_marker}, {param_marker}, {param_marker})
+                        """, (new_item_id, code, desc))
+
+            conn.commit()
+            flash(f"OCR品項 '{item_name}' 新增成功！", 'success')
+            return redirect(url_for('admin', tab='ocr', store_name=store_name))
+        except Exception as ex:
+            conn.rollback()
+            flash('新增OCR品項失敗，資料庫發生錯誤。', 'error')
+            logging.error(f"新增 OCR 菜單品項時資料庫錯誤: {ex}")
+            return redirect(url_for('add_ocr_menu_item', store_name=store_name))
+        finally:
+            cursor.close()
+            conn.close()
+
+    # 處理 GET 請求
+    store_name = request.args.get('store_name')
+    if not store_name:
+        flash('未指定店家名稱。', 'error')
+        return redirect(url_for('admin', tab='ocr'))
+        
+    try:
+        # 取得所有可用語言
+        cursor.execute("SELECT line_lang_code, lang_name, translation_lang_code FROM languages ORDER BY line_lang_code;")
+        languages = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+        
+        store = {'store_name': store_name}
+
+        return render_template('add_ocr_menu_item.html', store=store, languages=languages)
+    except Exception as ex:
+        flash('讀取頁面資料時發生錯誤。', 'error')
+        logging.error(f"讀取新增OCR菜單頁面資料時錯誤: {ex}")
+        return redirect(url_for('admin', tab='ocr'))
+    finally:
+        cursor.close()
         conn.close()
 
 if __name__ == '__main__':

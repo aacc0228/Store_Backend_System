@@ -123,6 +123,29 @@
             padding: 8px 12px;
             font-size: 0.8rem;
         }
+        .translation-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1rem;
+        }
+        .translation-indicator {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .mini-spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -130,9 +153,11 @@
         <h1>新增菜單品項</h1>
         <h2>店家: {{ store.store_name }} (ID: {{ store.store_id }})</h2>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
-            <div class="flash-message">{{ messages[0] }}</div>
+            {% for category, message in messages %}
+              <div class="flash-message-{{ category or 'error' }}">{{ message }}</div>
+            {% endfor %}
           {% endif %}
         {% endwith %}
 
@@ -152,15 +177,20 @@
                 </div>
 
                 <div class="translations-container">
-                    <h3>多語言描述</h3>
-                    <div id="translations-list">
-                        <!-- 翻譯欄位將由 JavaScript 動態新增於此 -->
+                    <div class="translation-header">
+                        <h3>多語言描述</h3>
+                        <div id="translation-indicator" class="translation-indicator" style="display: none;">
+                            <div class="mini-spinner"></div>
+                            <span style="font-size: 0.9em; color: #555;">正在自動翻譯...</span>
+                        </div>
                     </div>
+                    <div id="translations-list">
+                        </div>
                     <button type="button" class="btn btn-add-translation" onclick="addTranslationField()">新增翻譯</button>
                 </div>
 
                 <div class="form-actions">
-                    <a href="{{ url_for('admin', tab='menu') }}" class="btn btn-secondary">取消</a>
+                    <a href="{{ url_for('admin', tab='menu', store_id=store.store_id) }}" class="btn btn-secondary">取消</a>
                     <button type="submit" class="btn btn-primary">送出</button>
                 </div>
             </div>
@@ -169,7 +199,90 @@
 
     <script>
         const availableLanguages = {{ languages|tojson }};
+        const itemNameInput = document.getElementById('item_name');
+        let translationTimeout;
 
+        // 當使用者從下拉選單選擇一個語言時，觸發此函式，僅翻譯該行
+        async function translateSingleRow(selectElement) {
+            const itemName = itemNameInput.value;
+            const targetLang = selectElement.value;
+            const translationGroup = selectElement.closest('.translation-group');
+            const textarea = translationGroup.querySelector('textarea[name="descriptions[]"]');
+            
+            if (!itemName || !targetLang) {
+                return; // 如果沒有品項名稱或未選擇語言，則不執行
+            }
+
+            const translationIndicator = document.getElementById('translation-indicator');
+            translationIndicator.style.display = 'flex';
+
+            try {
+                const response = await fetch('/api/auto_translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: itemName, target_langs: [targetLang] })
+                });
+                if (!response.ok) throw new Error('翻譯 API 請求失敗');
+                
+                const translations = await response.json();
+                if (translations[targetLang]) {
+                    textarea.value = translations[targetLang];
+                }
+            } catch (error) {
+                console.error("單行自動翻譯失敗:", error);
+            } finally {
+                translationIndicator.style.display = 'none';
+            }
+        }
+
+        // 當使用者修改品項名稱時，觸發此函式，翻譯所有已存在的行
+        async function autoTranslateBatch() {
+            const newItemName = itemNameInput.value;
+            if (!newItemName) return;
+            
+            const translationIndicator = document.getElementById('translation-indicator');
+            const translationGroups = document.querySelectorAll('#translations-list .translation-group');
+            const targetLangs = Array.from(translationGroups).map(group => {
+                return group.querySelector('select[name="lang_codes[]"]').value;
+            }).filter(Boolean); // 過濾掉未選擇語言的
+
+            if (targetLangs.length === 0) {
+                return;
+            }
+            
+            translationIndicator.style.display = 'flex';
+            try {
+                const response = await fetch('/api/auto_translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: newItemName, target_langs: targetLangs })
+                });
+                if (!response.ok) throw new Error('翻譯 API 請求失敗');
+                
+                const translations = await response.json();
+                translationGroups.forEach(group => {
+                    const select = group.querySelector('select[name="lang_codes[]"]');
+                    const textarea = group.querySelector('textarea[name="descriptions[]"]');
+                    const langCode = select.value;
+                    if (translations[langCode]) {
+                        textarea.value = translations[langCode];
+                    }
+                });
+            } catch (error) {
+                console.error("批次自動翻譯失敗:", error);
+                alert("自動翻譯時發生錯誤，請檢查網路連線或稍後再試。");
+            } finally {
+                translationIndicator.style.display = 'none';
+            }
+        }
+
+        // 監聽品項名稱輸入框，延遲觸發批次翻譯
+        itemNameInput.addEventListener('input', () => {
+            clearTimeout(translationTimeout);
+            translationTimeout = setTimeout(autoTranslateBatch, 1500); // 停止輸入 1.5 秒後觸發
+        });
+
+        // 新增一組翻譯欄位
         function addTranslationField() {
             const container = document.getElementById('translations-list');
             const newField = document.createElement('div');
@@ -178,7 +291,6 @@
             let selectHtml = '<select name="lang_codes[]" required>';
             selectHtml += '<option value="">-- 選擇語言 --</option>';
             availableLanguages.forEach(lang => {
-                // 使用 translation_lang_code 作為 option 的 value
                 selectHtml += `<option value="${lang.translation_lang_code}">${lang.lang_name} (${lang.translation_lang_code})</option>`;
             });
             selectHtml += '</select>';
@@ -189,6 +301,10 @@
                 <button type="button" class="btn btn-remove-translation" onclick="this.parentElement.remove()">移除</button>
             `;
             container.appendChild(newField);
+            
+            // 為新建立的下拉選單加上事件監聽，以便選擇後立即翻譯
+            const newSelect = newField.querySelector('select[name="lang_codes[]"]');
+            newSelect.addEventListener('change', () => translateSingleRow(newSelect));
         }
     </script>
 </body>
