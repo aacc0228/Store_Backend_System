@@ -227,7 +227,7 @@ def validate_store_data(form):
     VALIDATION_LIMITS = {
         'store_name': 100, 'place_id': 255, 'top_dish_1': 100,
         'top_dish_2': 100, 'top_dish_3': 100, 'top_dish_4': 100,
-        'top_dish_5': 100, 'main_photo_url': 255,
+        'top_dish_5': 100, 'main_photo_url': 1000,
     }
     FIELD_NAMES = {
         'store_name': '店家名稱', 'place_id': 'Google Map Place ID',
