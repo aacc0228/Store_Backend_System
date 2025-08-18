@@ -1053,12 +1053,6 @@ def upload_ocr():
                 else: # SQL_SERVER
                     cursor.execute("SELECT @@IDENTITY AS id")
                     ocr_item_id = cursor.fetchone()[0]
-
-                # 4.2 寫入 ocr_menu_translations (中文)
-                cursor.execute(
-                    f"INSERT INTO ocr_menu_translations (menu_item_id, lang_code, description) VALUES ({param_marker}, {param_marker}, {param_marker})",
-                    (ocr_item_id, 'zh-TW', original_name) # 假設中文的 lang_code 是 'zh-TW'
-                )
                 
                 # 4.3 寫入 ocr_menu_translations (英文)
                 if translated_name:
