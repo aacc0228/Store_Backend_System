@@ -893,12 +893,43 @@ def import_ocr_menu():
             conn.close()
             return redirect(url_for('admin', tab='ocr'))
 
-        # 步驟 4-6: 遍歷、插入品項和翻譯
+        # 步驟 4-6: 遍歷、檢查重複、插入品項和翻譯
         imported_count = 0
+        skipped_count = 0
         for ocr_item in ocr_items:
+            # --- 新增的重複檢查邏輯 START ---
+            item_name = ocr_item['item_name']
+            price_small = ocr_item.get('price_small')
+            price_big = ocr_item.get('price_big')
+
+            # 準備檢查語句，特別處理 price_big 可能為 NULL 的情況
+            check_sql = f"""
+                SELECT COUNT(*) FROM menu_items mi
+                JOIN menus m ON mi.menu_id = m.menu_id
+                WHERE m.store_id = {param_marker}
+                  AND mi.item_name = {param_marker}
+                  AND mi.price_small = {param_marker}
+            """
+            check_params = [store_id, item_name, price_small]
+            
+            if price_big is None:
+                check_sql += " AND mi.price_big IS NULL"
+            else:
+                check_sql += f" AND mi.price_big = {param_marker}"
+                check_params.append(price_big)
+            
+            cursor.execute(check_sql, check_params)
+            (count,) = cursor.fetchone()
+
+            if count > 0:
+                logging.info(f"跳過已存在的重複項目: store_id={store_id}, item_name='{item_name}'")
+                skipped_count += 1
+                continue # 如果項目已存在，則跳過此迴圈的剩餘部分
+            # --- 新增的重複檢查邏輯 END ---
+
             cursor.execute(
                 f"INSERT INTO menu_items (menu_id, item_name, price_big, price_small) VALUES ({param_marker}, {param_marker}, {param_marker}, {param_marker})",
-                (menu_id, ocr_item['item_name'], ocr_item.get('price_big'), ocr_item.get('price_small'))
+                (menu_id, item_name, price_big, price_small)
             )
             if DB_TYPE == 'MYSQL':
                 new_menu_item_id = cursor.lastrowid
