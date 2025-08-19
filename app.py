@@ -353,6 +353,93 @@ def get_menu_items(store_id):
         logging.error(f"API Menu Items 資料庫錯誤: {ex}")
         return jsonify({"error": "Database error"}), 500
 
+# --- 修改後的訂單查詢 API START ---
+@app.route('/api/orders')
+def get_orders():
+    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
+    page = request.args.get('page', 1, type=int)
+    search_store_name = request.args.get('store_name', '', type=str)
+    per_page = 10
+    offset = (page - 1) * per_page
+    params, where_clauses = [], []
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+
+    # *** 修改處：新增 LEFT JOIN users u 以取得 user_name ***
+    join_sql = "JOIN stores s ON o.store_id = s.store_id LEFT JOIN users u ON o.user_id = u.user_id"
+    
+    if search_store_name:
+        where_clauses.append(f"s.store_name LIKE {param_marker}")
+        params.append(f"%{search_store_name}%")
+        
+    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        count_query = f"SELECT COUNT(*) FROM orders o {join_sql} {where_sql};"
+        cursor.execute(count_query, params)
+        total_orders = cursor.fetchone()[0]
+
+        if DB_TYPE == 'MYSQL':
+            pagination_sql = f"ORDER BY o.order_time DESC LIMIT {param_marker} OFFSET {param_marker};"
+            final_params = params + [per_page, offset]
+        else: # SQL_SERVER
+            pagination_sql = f"ORDER BY o.order_time DESC OFFSET {param_marker} ROWS FETCH NEXT {param_marker} ROWS ONLY;"
+            final_params = params + [offset, per_page]
+
+        # *** 修改處：在 SELECT 中加入 u.user_name ***
+        data_query = f"""
+            SELECT o.order_id, o.user_id, u.user_name, s.store_name, o.order_time, o.total_amount, o.status 
+            FROM orders o {join_sql} {where_sql} {pagination_sql}
+        """
+        cursor.execute(data_query, final_params)
+        
+        columns = [column[0] for column in cursor.description]
+        orders_data = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        
+        total_pages = (total_orders + per_page - 1) // per_page
+        return jsonify({
+            'orders': orders_data,
+            'pagination': { 'current_page': page, 'total_pages': total_pages, 'has_prev': page > 1, 'has_next': page < total_pages }
+        })
+    except Exception as ex:
+        logging.error(f"API Orders 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
+
+@app.route('/api/order_items/<int:order_id>')
+def get_order_items(order_id):
+    if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401
+    param_marker = '%s' if DB_TYPE == 'MYSQL' else '?'
+    # 更新查詢以符合新的 `order_items` 表結構
+    # 使用 COALESCE 處理正式品項和臨時品項的名稱顯示
+    query = f"""
+        SELECT 
+            oi.order_item_id, 
+            COALESCE(mi.item_name, oi.temp_item_name, oi.original_name) as item_name,
+            oi.quantity_small, 
+            oi.subtotal
+        FROM order_items oi
+        LEFT JOIN menu_items mi ON oi.menu_item_id = mi.menu_item_id AND oi.is_temp_item = 0
+        WHERE oi.order_id = {param_marker}
+        ORDER BY oi.order_item_id;
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, (order_id,))
+        columns = [column[0] for column in cursor.description]
+        items = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+        return jsonify(items)
+    except Exception as ex:
+        logging.error(f"API Order Items 資料庫錯誤: {ex}")
+        return jsonify({"error": "Database error"}), 500
+# --- 修改後的訂單查詢 API END ---
+
 @app.route('/api/languages', methods=['GET'])
 def get_languages():
     if 'username' not in session: return jsonify({"error": "Unauthorized"}), 401

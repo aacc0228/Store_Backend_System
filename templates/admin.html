@@ -163,6 +163,7 @@
             <button class="tab-button active" onclick="openTab(event, 'store-info')">店家資訊</button>
             <button class="tab-button" onclick="openTab(event, 'menu-content')">菜單內容</button>
             <button class="tab-button" onclick="openTab(event, 'ocr-menu-content')">OCR菜單管理</button>
+            <button class="tab-button" onclick="openTab(event, 'order-inquiry')">訂單查詢</button>
             <button class="tab-button" onclick="openTab(event, 'languages-maintenance')">語系維護</button>
             <button class="tab-button" onclick="openTab(event, 'store-user-binding')">人店綁定</button>
         </div>
@@ -264,6 +265,35 @@
             </div>
         </div>
 
+        <div id="order-inquiry" class="tab-content">
+            <h2>訂單查詢</h2>
+            <div class="actions-bar">
+                <div class="search-controls">
+                    <input type="text" id="order-search-store-name" placeholder="輸入店家名稱...">
+                    <button id="order-search-button">搜尋</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table id="orders-table">
+                    <thead>
+                        <tr>
+                            <th>操作</th>
+                            <th>訂單 ID</th>
+                            <th>店家名稱</th>
+                            <th>使用者 ID</th>
+                            <th>下單時間</th>
+                            <th>總金額</th>
+                            <th>訂單狀態</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="7" style="text-align:center;">正在載入訂單資料...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="pagination-controls" id="orders-pagination-controls"></div>
+        </div>
+
         <div id="languages-maintenance" class="tab-content">
             <h2>語系維護</h2>
             <div class="actions-bar">
@@ -328,6 +358,7 @@
             }
             event.currentTarget.classList.add("active");
 
+            // 根據不同頁籤載入對應的初始資料
             if (tabName === 'languages-maintenance') {
                 fetchLanguages();
             }
@@ -337,8 +368,12 @@
             if (tabName === 'store-user-binding') {
                 fetchLinks();
             }
+            if (tabName === 'order-inquiry') {
+                fetchOrders();
+            }
         }
 
+        // --- 店家資訊 Tab ---
         const storesTableBody = document.querySelector("#stores-table tbody");
         const paginationControls = document.getElementById("pagination-controls");
         const searchNameInput = document.getElementById("search-name");
@@ -407,6 +442,7 @@
             paginationControls.appendChild(nextButton);
         }
 
+        // --- 菜單內容 Tab ---
         const storeSelect = document.getElementById('store-select');
         const menuItemsTableBody = document.querySelector('#menu-items-table tbody');
         const addMenuItemBtn = document.getElementById('add-menu-item-btn');
@@ -477,14 +513,13 @@
             });
         }
         
+        // --- OCR 菜單管理 Tab ---
         const ocrStoreSelect = document.getElementById('ocr-store-select');
         const ocrMenuItemsTableBody = document.querySelector('#ocr-menu-items-table tbody');
         const importBtn = document.getElementById('import-ocr-btn');
         const importForm = document.getElementById('import-ocr-form');
         const hiddenInput = document.getElementById('ocr-store-name-hidden');
-        // *** 修改處 START ***
         const addOcrMenuItemBtn = document.getElementById('add-ocr-menu-item-btn');
-        // *** 修改處 END ***
 
         importForm.addEventListener('submit', function(event) {
             if (!confirm('確定要將此 OCR 菜單匯入到正式菜單嗎？\n\n- 系統會檢查店家是否存在。\n- 所有此 OCR 菜單的品項都將被新增至正式菜單中。\n\n此操作無法復原！')) {
@@ -508,7 +543,6 @@
             }
         }
 
-        // *** 修改處 START ***
         async function fetchOcrMenuItems(storeName) {
             if (storeName) {
                 importBtn.style.display = 'inline-block';
@@ -524,7 +558,6 @@
                     addOcrMenuItemBtn.style.display = 'none';
                 }
             }
-        // *** 修改處 END ***
             
             if (!storeName) {
                 ocrMenuItemsTableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">請先選擇一家店來查看 OCR 菜單。</td></tr>';
@@ -571,6 +604,125 @@
             });
         }
 
+        // --- 訂單查詢 Tab ---
+        const ordersTableBody = document.querySelector("#orders-table tbody");
+        const ordersPaginationControls = document.getElementById("orders-pagination-controls");
+        const orderSearchStoreNameInput = document.getElementById("order-search-store-name");
+        const orderSearchButton = document.getElementById("order-search-button");
+
+        async function fetchOrders(page = 1) {
+            const storeName = orderSearchStoreNameInput.value;
+            ordersTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">正在載入訂單資料...</td></tr>`;
+            const apiUrl = `/api/orders?page=${page}&store_name=${encodeURIComponent(storeName)}`;
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) { throw new Error(`HTTP 錯誤! 狀態: ${response.status}`); }
+                const data = await response.json();
+                renderOrdersTable(data.orders);
+                renderOrdersPagination(data.pagination);
+            } catch (error) {
+                console.error("無法取得訂單資料:", error);
+                ordersTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: red;">無法載入訂單資料。</td></tr>`;
+            }
+        }
+
+        function renderOrdersTable(orders) {
+            ordersTableBody.innerHTML = "";
+            if (!orders || orders.length === 0) {
+                ordersTableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">找不到符合條件的訂單資料。</td></tr>`;
+                return;
+            }
+            orders.forEach(order => {
+                const row = document.createElement("tr");
+                // *** 修改處：如果 user_name 存在，則將其顯示在 user_id 後面 ***
+                const userIdDisplay = order.user_name 
+                    ? `${order.user_id} (${order.user_name})` 
+                    : order.user_id;
+
+                row.innerHTML = `
+                    <td><button class="btn-edit" onclick="viewOrderDetails(${order.order_id})">查看詳情</button></td>
+                    <td>${order.order_id}</td>
+                    <td>${order.store_name || ''}</td>
+                    <td>${userIdDisplay}</td>
+                    <td>${formatDate(order.order_time)}</td>
+                    <td>${order.total_amount}</td>
+                    <td>${order.status || ''}</td>
+                `;
+                ordersTableBody.appendChild(row);
+            });
+        }
+
+        function renderOrdersPagination(pagination) {
+            ordersPaginationControls.innerHTML = "";
+            if (!pagination || pagination.total_pages <= 1) return;
+            const prevButton = document.createElement("button");
+            prevButton.innerText = "上一頁";
+            prevButton.className = "pagination-button";
+            prevButton.disabled = !pagination.has_prev;
+            prevButton.onclick = () => fetchOrders(pagination.current_page - 1);
+            ordersPaginationControls.appendChild(prevButton);
+            const pageInfo = document.createElement("span");
+            pageInfo.className = "pagination-info";
+            pageInfo.innerText = `第 ${pagination.current_page} / ${pagination.total_pages} 頁`;
+            ordersPaginationControls.appendChild(pageInfo);
+            const nextButton = document.createElement("button");
+            nextButton.innerText = "下一頁";
+            nextButton.className = "pagination-button";
+            nextButton.disabled = !pagination.has_next;
+            nextButton.onclick = () => fetchOrders(pagination.current_page + 1);
+            ordersPaginationControls.appendChild(nextButton);
+        }
+
+        async function viewOrderDetails(orderId) {
+            try {
+                const response = await fetch(`/api/order_items/${orderId}`);
+                if (!response.ok) throw new Error('無法取得訂單詳情');
+                const items = await response.json();
+                
+                let itemsHtml = '<p>此訂單沒有品項資料。</p>';
+                if (items && items.length > 0) {
+                    itemsHtml = `
+                        <table style="width: 100%; margin-top: 1rem; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="padding: 8px; border: 1px solid #ddd; background-color: #f2f2f2;">品項名稱</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd; background-color: #f2f2f2;">數量</th>
+                                    <th style="padding: 8px; border: 1px solid #ddd; background-color: #f2f2f2;">金額小計</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.map(item => `
+                                    <tr>
+                                        <td style="padding: 8px; border: 1px solid #ddd;">${item.item_name}</td>
+                                        <td style="padding: 8px; border: 1px solid #ddd;">${item.quantity_small}</td>
+                                        <td style="padding: 8px; border: 1px solid #ddd;">${item.subtotal}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+
+                const modalHtml = `
+                    <div id="order-details-modal-backdrop" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1001;">
+                        <div id="order-details-modal-content" style="background: white; padding: 2rem; border-radius: 8px; width: 600px; max-width: 90%; display: flex; flex-direction: column; gap: 1rem;">
+                            <h3>訂單 #${orderId} 詳情</h3>
+                            ${itemsHtml}
+                            <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1rem;">
+                                <button onclick="document.getElementById('order-details-modal-backdrop').remove()">關閉</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            } catch (error) {
+                console.error("查看訂單詳情時發生錯誤:", error);
+                alert("無法載入訂單詳情。");
+            }
+        }
+
+        // --- 語系維護 Tab ---
         const langSearchInput = document.getElementById('lang-search-input');
         const languagesTableBody = document.querySelector('#languages-table tbody');
 
@@ -670,6 +822,7 @@
             };
         }
 
+        // --- 人店綁定 Tab ---
         const linksTableBody = document.querySelector('#links-table tbody');
 
         async function fetchLinks() {
@@ -725,6 +878,7 @@
             }
         }
 
+        // --- 通用函式與事件監聽 ---
         function getPartnerLevelText(level) {
             switch (level) { case 0: return '非合作'; case 1: return '合作'; case 2: return 'VIP'; default: return '未知'; }
         }
@@ -734,6 +888,7 @@
             return date.toLocaleString('sv-SE').slice(0, 16);
         }
 
+        // 綁定事件監聽器
         searchButton.addEventListener("click", () => fetchStores(1));
         searchNameInput.addEventListener("keypress", (event) => {
             if (event.key === "Enter") { event.preventDefault(); searchButton.click(); }
@@ -748,8 +903,13 @@
             if (event.key === "Enter") { event.preventDefault(); fetchLanguages(); }
         });
         langSearchInput.addEventListener('input', () => fetchLanguages());
+        orderSearchButton.addEventListener("click", () => fetchOrders(1));
+        orderSearchStoreNameInput.addEventListener("keypress", (event) => {
+            if (event.key === "Enter") { event.preventDefault(); orderSearchButton.click(); }
+        });
 
 
+        // 頁面載入完成後執行的操作
         document.addEventListener("DOMContentLoaded", async () => {
             fetchStores(1);
             await populateStoreSelector();
@@ -760,7 +920,7 @@
             const storeName = urlParams.get('store_name');
 
             if (activeTab) {
-                const tabButton = document.querySelector(`button[onclick*="${activeTab}"]`);
+                const tabButton = document.querySelector(`button[onclick*="'${activeTab}'"]`);
                 if (tabButton) {
                     tabButton.click();
                 }
